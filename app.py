@@ -425,39 +425,55 @@ if "df_result" in st.session_state:
         use_container_width=True
     )
 
-    # ====================================
+    # ========================================
     # AI 分析
-    # ====================================
+    # ========================================
 
     st.subheader("🤖 AI 股票分析")
 
-    top_stocks = df_result.head(1)
+    top_stock = df_result.iloc[0]
 
-    for _, stock_data in top_stocks.iterrows():
+    st.markdown(f"### TOP1：{top_stock['股票']}")
 
-        st.markdown(f"## {stock_data['股票']}")
+    st.write(
+        f"""
+收盤價：{top_stock['收盤價']}
+
+量比：{top_stock['量比']}
+
+K/D：{top_stock['K']} / {top_stock['D']}
+
+判斷：{top_stock['判斷']}
+"""
+    )
+
+    # ========================================
+    # 按鈕才 request Gemini
+    # ========================================
+
+    if st.button("AI分析 TOP1"):
 
         prompt = f"""
 請分析以下台股：
 
-股票：{stock_data["股票"]}
+股票：{top_stock["股票"]}
 
-收盤價：{stock_data["收盤價"]}
-MA5：{stock_data["MA5"]}
-EMA20：{stock_data["EMA20"]}
-EMA60：{stock_data["EMA60"]}
+收盤價：{top_stock["收盤價"]}
+MA5：{top_stock["MA5"]}
+EMA20：{top_stock["EMA20"]}
+EMA60：{top_stock["EMA60"]}
 
-量比：{stock_data["量比"]}
+量比：{top_stock["量比"]}
 
-K：{stock_data["K"]}
-D：{stock_data["D"]}
+K：{top_stock["K"]}
+D：{top_stock["D"]}
 
-本週漲幅：{stock_data["本週%"]}
+本週漲幅：{top_stock["本週%"]}
 
-外資週：{stock_data["外資週"]}
-投信週：{stock_data["投信週"]}
+外資週：{top_stock["外資週"]}
+投信週：{top_stock["投信週"]}
 
-判斷：{stock_data["判斷"]}
+判斷：{top_stock["判斷"]}
 
 請用繁體中文分析：
 
@@ -466,18 +482,22 @@ D：{stock_data["D"]}
 3. 是否適合追
 4. 支撐壓力
 5. 風險
+
+請簡潔專業。
 """
 
-        cache_key = f"ai_{stock_data['股票']}"
+        with st.spinner("Gemini AI 分析中..."):
 
-        if cache_key not in st.session_state:
-
-            with st.spinner("AI 分析中..."):
+            try:
 
                 response = model.generate_content(prompt)
 
-                st.session_state[cache_key] = response.text
+                st.subheader("📈 AI 分析結果")
 
-        st.write(st.session_state[cache_key])
+                st.write(response.text)
 
-        st.divider()
+            except Exception:
+
+                st.error(
+                    "Gemini 免費額度已達上限，請稍後再試"
+                )
