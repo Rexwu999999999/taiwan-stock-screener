@@ -22,9 +22,7 @@ st.title("🔥 台股波段選股儀表板")
 # ========================================
 
 if st.button("🔄 強制更新資料"):
-
     st.cache_data.clear()
-
     st.success("Cache 已清除，下次分析會重新抓資料")
 
 # ========================================
@@ -53,10 +51,6 @@ stock_text = st.text_area(
 
 watchlist = re.findall(r"\d{4}", stock_text)
 
-# ========================================
-# 開始分析按鈕
-# ========================================
-
 start_btn = st.button("🚀 開始分析")
 
 # ========================================
@@ -65,41 +59,16 @@ start_btn = st.button("🚀 開始分析")
 
 st.sidebar.header("篩選條件")
 
-min_score = st.sidebar.slider(
-    "最低分數",
-    0,
-    15,
-    0
-)
-
-max_week_gain = st.sidebar.slider(
-    "本週漲幅上限 %",
-    0,
-    50,
-    30
-)
-
-max_ma5_bias = st.sidebar.slider(
-    "MA5 乖離上限 %",
-    0,
-    30,
-    15
-)
-
-min_vol_ratio = st.sidebar.slider(
-    "最低量比",
-    0.0,
-    5.0,
-    0.0,
-    0.1
-)
+min_score = st.sidebar.slider("最低分數", 0, 15, 0)
+max_week_gain = st.sidebar.slider("本週漲幅上限 %", 0, 50, 30)
+max_ma5_bias = st.sidebar.slider("MA5 乖離上限 %", 0, 30, 15)
+min_vol_ratio = st.sidebar.slider("最低量比", 0.0, 5.0, 0.0, 0.1)
 
 # ========================================
 # 找最近交易日
 # ========================================
 
 @st.cache_data(ttl=3600)
-
 def get_valid_date(stock_id):
 
     for i in range(10):
@@ -115,12 +84,7 @@ def get_valid_date(stock_id):
             "end_date": d
         }
 
-        r = requests.get(
-            url,
-            headers=headers,
-            params=params
-        )
-
+        r = requests.get(url, headers=headers, params=params)
         data = r.json().get("data", [])
 
         if len(data) > 0:
@@ -146,7 +110,6 @@ def net_buy(data, name):
 # ========================================
 
 @st.cache_data(ttl=3600)
-
 def analyze(stock_id):
 
     end_date = get_valid_date(stock_id)
@@ -159,10 +122,6 @@ def analyze(stock_id):
         - timedelta(days=365)
     ).strftime("%Y-%m-%d")
 
-    # ====================================
-    # 股價資料
-    # ====================================
-
     params = {
         "dataset": "TaiwanStockPrice",
         "data_id": stock_id,
@@ -170,12 +129,7 @@ def analyze(stock_id):
         "end_date": end_date
     }
 
-    r = requests.get(
-        url,
-        headers=headers,
-        params=params
-    )
-
+    r = requests.get(url, headers=headers, params=params)
     df = pd.DataFrame(r.json().get("data", []))
 
     if df.empty or len(df) < 60:
@@ -188,40 +142,19 @@ def analyze(stock_id):
     # ====================================
 
     df["MA5"] = df["close"].rolling(5).mean()
-
     df["MA10"] = df["close"].rolling(10).mean()
-
-    df["EMA20"] = (
-        df["close"]
-        .ewm(span=20)
-        .mean()
-    )
-
-    df["EMA60"] = (
-        df["close"]
-        .ewm(span=60)
-        .mean()
-    )
-
-    df["VOL_MA20"] = (
-        df["Trading_Volume"]
-        .rolling(20)
-        .mean()
-    )
+    df["EMA20"] = df["close"].ewm(span=20).mean()
+    df["EMA60"] = df["close"].ewm(span=60).mean()
+    df["VOL_MA20"] = df["Trading_Volume"].rolling(20).mean()
 
     # ====================================
     # KDJ
     # ====================================
 
     low_n = df["min"].rolling(9).min()
-
     high_n = df["max"].rolling(9).max()
 
-    df["RSV"] = (
-        (df["close"] - low_n)
-        / (high_n - low_n)
-    ) * 100
-
+    df["RSV"] = ((df["close"] - low_n) / (high_n - low_n)) * 100
     df["RSV"] = df["RSV"].fillna(50)
 
     k = 50
@@ -232,8 +165,8 @@ def analyze(stock_id):
 
     for rsv in df["RSV"]:
 
-        k = (2/3)*k + (1/3)*rsv
-        d = (2/3)*d + (1/3)*k
+        k = (2 / 3) * k + (1 / 3) * rsv
+        d = (2 / 3) * d + (1 / 3) * k
 
         K_list.append(k)
         D_list.append(d)
@@ -244,17 +177,10 @@ def analyze(stock_id):
     latest = df.iloc[-1]
 
     # ====================================
-    # 量比
+    # 基礎數值
     # ====================================
 
-    vol_ratio = (
-        latest["Trading_Volume"]
-        / latest["VOL_MA20"]
-    )
-
-    # ====================================
-    # 本週漲跌
-    # ====================================
+    vol_ratio = latest["Trading_Volume"] / latest["VOL_MA20"]
 
     week_ago_close = df.iloc[-6]["close"]
 
@@ -262,10 +188,6 @@ def analyze(stock_id):
         (latest["close"] - week_ago_close)
         / week_ago_close
     ) * 100
-
-    # ====================================
-    # 乖離率
-    # ====================================
 
     bias_ma5 = (
         (latest["close"] - latest["MA5"])
@@ -277,14 +199,14 @@ def analyze(stock_id):
         / latest["EMA20"]
     ) * 100
 
-    # ====================================
-    # 紅K數
-    # ====================================
-
     recent_5 = df.tail(5)
 
     red_count = (
         recent_5["close"] > recent_5["open"]
+    ).sum()
+
+    black_count = (
+        recent_5["close"] < recent_5["open"]
     ).sum()
 
     # ====================================
@@ -299,23 +221,17 @@ def analyze(stock_id):
     }
 
     inst = pd.DataFrame(
-        requests.get(
-            url,
-            headers=headers,
-            params=params
-        ).json().get("data", [])
+        requests.get(url, headers=headers, params=params).json().get("data", [])
     )
 
     foreign_week = 0
     trust_week = 0
-
     foreign_month = 0
     trust_month = 0
 
     if not inst.empty:
 
         inst = inst.sort_values("date")
-
         inst["date"] = pd.to_datetime(inst["date"])
 
         week_inst = inst[
@@ -327,7 +243,6 @@ def analyze(stock_id):
         ]
 
         latest_month = pd.to_datetime(end_date).month
-
         latest_year = pd.to_datetime(end_date).year
 
         month_inst = inst[
@@ -336,25 +251,10 @@ def analyze(stock_id):
             (inst["date"].dt.year == latest_year)
         ]
 
-        foreign_week = net_buy(
-            week_inst,
-            "Foreign_Investor"
-        )
-
-        trust_week = net_buy(
-            week_inst,
-            "Investment_Trust"
-        )
-
-        foreign_month = net_buy(
-            month_inst,
-            "Foreign_Investor"
-        )
-
-        trust_month = net_buy(
-            month_inst,
-            "Investment_Trust"
-        )
+        foreign_week = net_buy(week_inst, "Foreign_Investor")
+        trust_week = net_buy(week_inst, "Investment_Trust")
+        foreign_month = net_buy(month_inst, "Foreign_Investor")
+        trust_month = net_buy(month_inst, "Investment_Trust")
 
     # ====================================
     # 分數
@@ -400,6 +300,27 @@ def analyze(stock_id):
 
     if week_change > 20:
         score -= 2
+
+    # ====================================
+    # 回檔分數
+    # ====================================
+
+    pullback_score = 0
+
+    if abs(bias_ema20) <= 3:
+        pullback_score += 1
+
+    if abs(bias_ma5) <= 5:
+        pullback_score += 1
+
+    if latest["K"] > latest["D"]:
+        pullback_score += 1
+
+    if latest["K"] < 75:
+        pullback_score += 1
+
+    if latest["close"] > latest["EMA20"]:
+        pullback_score += 1
 
     # ====================================
     # FOMO風險
@@ -460,12 +381,32 @@ def analyze(stock_id):
         stage = "轉弱"
 
     # ====================================
+    # 型態分類
+    # ====================================
+
+    setup = "整理"
+
+    if pullback_score >= 4:
+        setup = "回檔轉強"
+
+    elif stage == "剛轉強":
+        setup = "突破起漲"
+
+    elif stage == "主升段":
+        setup = "主升延續"
+
+    elif stage == "過熱":
+        setup = "末升段"
+
+    elif stage == "轉弱":
+        setup = "轉弱"
+
+    # ====================================
     # 訊號判斷
     # ====================================
 
     signal = "WAIT"
 
-    # YES
     if (
         latest["close"] > latest["EMA20"]
         and latest["MA5"] > latest["EMA20"]
@@ -479,7 +420,13 @@ def analyze(stock_id):
     ):
         signal = "YES"
 
-    # HOT
+    elif (
+        setup == "回檔轉強"
+        and foreign_week > 0
+        and risk != "高"
+    ):
+        signal = "YES"
+
     elif (
         latest["close"] > latest["EMA20"]
         and latest["K"] > latest["D"]
@@ -489,7 +436,6 @@ def analyze(stock_id):
     ):
         signal = "HOT"
 
-    # EARLY
     elif (
         latest["close"] > latest["EMA20"]
         and latest["K"] > latest["D"]
@@ -499,7 +445,6 @@ def analyze(stock_id):
     ):
         signal = "EARLY"
 
-    # NO
     elif (
         latest["close"] < latest["EMA20"]
         and latest["K"] < latest["D"]
@@ -513,7 +458,7 @@ def analyze(stock_id):
     action = "等待"
 
     if signal == "YES":
-        action = "最佳波段區"
+        action = "最佳波段區，可觀察進場"
 
     elif signal == "HOT":
         action = "主流強勢但避免追高"
@@ -541,10 +486,6 @@ def analyze(stock_id):
 
     elif stage == "轉弱":
         stage_color = "⚫"
-
-    # ====================================
-    # return
-    # ====================================
 
     return {
 
@@ -574,6 +515,8 @@ def analyze(stock_id):
 
         "紅K數": int(red_count),
 
+        "黑K數": int(black_count),
+
         "外資週": int(foreign_week),
 
         "投信週": int(trust_week),
@@ -582,17 +525,21 @@ def analyze(stock_id):
 
         "投信月": int(trust_month),
 
-        "分數": score,
+        "分數": int(score),
+
+        "回檔分數": int(pullback_score),
 
         "判斷": signal,
 
         "建議": action,
 
+        "型態": setup,
+
         "波段階段": stage,
 
         "階段燈號": stage_color,
 
-        "FOMO風險": fomo,
+        "FOMO風險": int(fomo),
 
         "風險": risk
 
@@ -659,7 +606,6 @@ def plot_kline(df, stock_id):
 if start_btn:
 
     results = []
-
     chart_data = {}
 
     progress = st.progress(0)
@@ -673,7 +619,6 @@ if start_btn:
             if result:
 
                 results.append(result)
-
                 chart_data[stock_id] = df
 
         except Exception as e:
@@ -702,12 +647,11 @@ if start_btn:
         )
 
         df_result = df_result.sort_values(
-            ["排序", "分數", "量比"],
-            ascending=[True, False, False]
+            ["排序", "分數", "回檔分數", "量比"],
+            ascending=[True, False, False, False]
         )
 
         st.session_state["df_result"] = df_result
-
         st.session_state["chart_data"] = chart_data
 
 # ========================================
@@ -717,7 +661,6 @@ if start_btn:
 if "df_result" in st.session_state:
 
     df_result = st.session_state["df_result"]
-
     chart_data = st.session_state["chart_data"]
 
     filtered = df_result[
@@ -737,34 +680,18 @@ if "df_result" in st.session_state:
     c1, c2, c3, c4, c5 = st.columns(5)
 
     c1.metric("股票數", len(df_result))
-
-    c2.metric(
-        "YES",
-        len(df_result[df_result["判斷"] == "YES"])
-    )
-
-    c3.metric(
-        "HOT",
-        len(df_result[df_result["判斷"] == "HOT"])
-    )
-
-    c4.metric(
-        "EARLY",
-        len(df_result[df_result["判斷"] == "EARLY"])
-    )
-
-    c5.metric(
-        "NO",
-        len(df_result[df_result["判斷"] == "NO"])
-    )
+    c2.metric("YES", len(df_result[df_result["判斷"] == "YES"]))
+    c3.metric("HOT", len(df_result[df_result["判斷"] == "HOT"]))
+    c4.metric("EARLY", len(df_result[df_result["判斷"] == "EARLY"]))
+    c5.metric("NO", len(df_result[df_result["判斷"] == "NO"]))
 
     st.divider()
 
     # ====================================
-    # 分類
+    # 分類顯示
     # ====================================
 
-    st.subheader("🔥 YES")
+    st.subheader("🔥 YES｜最佳波段區 / 回檔轉強")
     st.dataframe(
         df_result[
             df_result["判斷"] == "YES"
@@ -772,7 +699,7 @@ if "df_result" in st.session_state:
         use_container_width=True
     )
 
-    st.subheader("🔥 HOT")
+    st.subheader("🔥 HOT｜主流強勢但注意追高")
     st.dataframe(
         df_result[
             df_result["判斷"] == "HOT"
@@ -780,7 +707,7 @@ if "df_result" in st.session_state:
         use_container_width=True
     )
 
-    st.subheader("🟢 EARLY")
+    st.subheader("🟢 EARLY｜剛轉強觀察")
     st.dataframe(
         df_result[
             df_result["判斷"] == "EARLY"
@@ -788,7 +715,7 @@ if "df_result" in st.session_state:
         use_container_width=True
     )
 
-    st.subheader("⚪ WAIT")
+    st.subheader("⚪ WAIT｜等待訊號")
     st.dataframe(
         df_result[
             df_result["判斷"] == "WAIT"
@@ -796,7 +723,7 @@ if "df_result" in st.session_state:
         use_container_width=True
     )
 
-    st.subheader("❌ NO")
+    st.subheader("❌ NO｜弱勢排除")
     st.dataframe(
         df_result[
             df_result["判斷"] == "NO"
@@ -805,7 +732,6 @@ if "df_result" in st.session_state:
     )
 
     st.subheader("📊 篩選後全部")
-
     st.dataframe(
         filtered.drop(columns=["排序"]),
         use_container_width=True
@@ -834,4 +760,32 @@ if "df_result" in st.session_state:
         st.plotly_chart(
             fig,
             use_container_width=True
+        )
+
+        stock_row = df_result[
+            df_result["股票"] == selected_stock
+        ].iloc[0]
+
+        st.subheader("📌 單股重點")
+
+        st.write(
+            f"""
+股票：{stock_row["股票"]}
+
+判斷：{stock_row["判斷"]}
+
+型態：{stock_row["型態"]}
+
+波段階段：{stock_row["階段燈號"]} {stock_row["波段階段"]}
+
+分數：{stock_row["分數"]}
+
+回檔分數：{stock_row["回檔分數"]}
+
+FOMO風險：{stock_row["FOMO風險"]}
+
+風險：{stock_row["風險"]}
+
+建議：{stock_row["建議"]}
+"""
         )
