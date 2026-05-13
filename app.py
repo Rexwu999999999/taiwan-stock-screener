@@ -4,26 +4,48 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import re
+from openai import OpenAI
 
 # ========================================
 # 頁面設定
 # ========================================
 
 st.set_page_config(
-    page_title="台股波段選股系統",
+    page_title="台股波段選股系統 AI版",
     layout="wide"
 )
 
-st.title("🔥 台股波段選股系統")
+st.title("🔥 台股波段選股系統 AI版")
 
 # ========================================
-# Token
+# FinMind Token
 # ========================================
 
 TOKEN = st.sidebar.text_input(
     "FinMind Token",
     type="password"
 )
+
+# ========================================
+# OpenAI API Key
+# ========================================
+
+OPENAI_KEY = st.sidebar.text_input(
+    "OpenAI API Key",
+    type="password"
+)
+
+# ========================================
+# OpenAI Client
+# ========================================
+
+client = OpenAI(
+    api_key=OPENAI_KEY
+)
+
+# ========================================
+# Headers
+# ========================================
 
 headers = {
     "Authorization": f"Bearer {TOKEN}"
@@ -421,7 +443,7 @@ def analyze(stock_id):
     }
 
 # ========================================
-# 按鈕
+# 開始分析
 # ========================================
 
 if st.button("開始分析"):
@@ -473,10 +495,10 @@ if st.button("開始分析"):
     )
 
     # ====================================
-    # 分類顯示
+    # 顯示
     # ====================================
 
-    st.subheader("🔥 YES（剛轉強）")
+    st.subheader("🔥 YES")
     st.dataframe(
         df_result[
             df_result["判斷"] == "YES"
@@ -484,7 +506,7 @@ if st.button("開始分析"):
         use_container_width=True
     )
 
-    st.subheader("🔥 HOT（主流強勢）")
+    st.subheader("🔥 HOT")
     st.dataframe(
         df_result[
             df_result["判斷"] == "HOT"
@@ -492,7 +514,7 @@ if st.button("開始分析"):
         use_container_width=True
     )
 
-    st.subheader("🟢 EARLY（提前觀察）")
+    st.subheader("🟢 EARLY")
     st.dataframe(
         df_result[
             df_result["判斷"] == "EARLY"
@@ -521,3 +543,65 @@ if st.button("開始分析"):
         df_result.drop(columns=["排序"]),
         use_container_width=True
     )
+
+    # ====================================
+    # AI 分析
+    # ====================================
+
+    st.subheader("🤖 AI 股票分析")
+
+    selected_stock = st.selectbox(
+        "選擇股票",
+        df_result["股票"]
+    )
+
+    if st.button("開始 AI 分析"):
+
+        stock_data = df_result[
+            df_result["股票"] == selected_stock
+        ].iloc[0]
+
+        prompt = f'''
+請分析以下台股：
+
+股票：{stock_data["股票"]}
+
+收盤價：{stock_data["收盤價"]}
+MA5：{stock_data["MA5"]}
+EMA20：{stock_data["EMA20"]}
+EMA60：{stock_data["EMA60"]}
+
+量比：{stock_data["量比"]}
+
+K：{stock_data["K"]}
+D：{stock_data["D"]}
+
+本週漲幅：{stock_data["本週%"]}
+
+外資週：{stock_data["外資週"]}
+投信週：{stock_data["投信週"]}
+
+判斷：{stock_data["判斷"]}
+
+請用繁體中文分析：
+
+1. 趨勢
+2. 強弱
+3. 是否適合追
+4. 支撐壓力
+5. 風險
+'''
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        ai_text = response.choices[0].message.content
+
+        st.write(ai_text)
