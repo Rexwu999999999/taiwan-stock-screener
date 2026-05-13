@@ -30,7 +30,9 @@ FINMIND_TOKEN = st.secrets["FINMIND_TOKEN"]
 
 genai.configure(api_key=GEMINI_KEY)
 
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel(
+    "models/gemini-2.0-flash"
+)
 
 # ========================================
 # FinMind
