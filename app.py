@@ -431,7 +431,7 @@ if "df_result" in st.session_state:
 
     st.subheader("🤖 AI 股票分析")
 
-    top_stocks = df_result.head(3)
+    top_stocks = df_result.head(1)
 
     for _, stock_data in top_stocks.iterrows():
 
@@ -468,8 +468,16 @@ D：{stock_data["D"]}
 5. 風險
 """
 
-        response = model.generate_content(prompt)
+        cache_key = f"ai_{stock_data['股票']}"
 
-        st.write(response.text)
+        if cache_key not in st.session_state:
+
+            with st.spinner("AI 分析中..."):
+
+                response = model.generate_content(prompt)
+
+                st.session_state[cache_key] = response.text
+
+        st.write(st.session_state[cache_key])
 
         st.divider()
