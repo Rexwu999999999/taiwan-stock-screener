@@ -65,7 +65,12 @@ start_btn = st.button("🚀 開始分析")
 
 st.sidebar.header("篩選條件")
 
-min_score = st.sidebar.slider("最低分數", 0, 15, 0)
+min_score = st.sidebar.slider(
+    "最低分數",
+    0,
+    15,
+    0
+)
 
 max_week_gain = st.sidebar.slider(
     "本週漲幅上限 %",
@@ -397,36 +402,104 @@ def analyze(stock_id):
         score -= 2
 
     # ====================================
+    # FOMO風險
+    # ====================================
+
+    fomo = 0
+
+    if week_change > 15:
+        fomo += 1
+
+    if bias_ma5 > 8:
+        fomo += 1
+
+    if latest["K"] > 85:
+        fomo += 1
+
+    if red_count >= 4:
+        fomo += 1
+
+    risk = "低"
+
+    if fomo == 1:
+        risk = "中"
+
+    elif fomo >= 2:
+        risk = "高"
+
+    # ====================================
+    # 波段階段
+    # ====================================
+
+    stage = "整理"
+
+    if (
+        latest["close"] > latest["EMA20"]
+        and latest["K"] > latest["D"]
+        and latest["K"] < 55
+    ):
+        stage = "剛轉強"
+
+    elif (
+        latest["close"] > latest["EMA20"]
+        and latest["K"] >= 55
+        and latest["K"] < 75
+    ):
+        stage = "主升段"
+
+    elif (
+        latest["K"] >= 75
+        or week_change > 15
+    ):
+        stage = "過熱"
+
+    elif (
+        latest["close"] < latest["EMA20"]
+        and latest["K"] < latest["D"]
+    ):
+        stage = "轉弱"
+
+    # ====================================
     # 訊號判斷
     # ====================================
 
     signal = "WAIT"
 
+    # YES
     if (
         latest["close"] > latest["EMA20"]
         and latest["MA5"] > latest["EMA20"]
         and latest["K"] > latest["D"]
-        and latest["K"] < 70
+        and latest["K"] >= 45
+        and latest["K"] <= 65
         and vol_ratio > 1
-        and week_change < 12
+        and week_change < 8
         and bias_ma5 < 5
         and foreign_week > 0
     ):
         signal = "YES"
 
+    # HOT
     elif (
         latest["close"] > latest["EMA20"]
         and latest["K"] > latest["D"]
         and latest["K"] >= 70
+        and week_change < 18
+        and bias_ma5 < 10
     ):
         signal = "HOT"
 
+    # EARLY
     elif (
         latest["close"] > latest["EMA20"]
         and latest["K"] > latest["D"]
+        and latest["K"] < 65
+        and week_change < 8
+        and bias_ma5 < 5
     ):
         signal = "EARLY"
 
+    # NO
     elif (
         latest["close"] < latest["EMA20"]
         and latest["K"] < latest["D"]
@@ -440,16 +513,38 @@ def analyze(stock_id):
     action = "等待"
 
     if signal == "YES":
-        action = "可觀察進場"
+        action = "最佳波段區"
 
     elif signal == "HOT":
-        action = "強勢但避免追高"
+        action = "主流強勢但避免追高"
 
     elif signal == "EARLY":
-        action = "提前觀察"
+        action = "剛轉強觀察"
 
     elif signal == "NO":
         action = "弱勢避免"
+
+    # ====================================
+    # 階段燈號
+    # ====================================
+
+    stage_color = "⚪"
+
+    if stage == "剛轉強":
+        stage_color = "🟢"
+
+    elif stage == "主升段":
+        stage_color = "🟡"
+
+    elif stage == "過熱":
+        stage_color = "🔴"
+
+    elif stage == "轉弱":
+        stage_color = "⚫"
+
+    # ====================================
+    # return
+    # ====================================
 
     return {
 
@@ -491,7 +586,15 @@ def analyze(stock_id):
 
         "判斷": signal,
 
-        "建議": action
+        "建議": action,
+
+        "波段階段": stage,
+
+        "階段燈號": stage_color,
+
+        "FOMO風險": fomo,
+
+        "風險": risk
 
     }, df
 
@@ -617,10 +720,6 @@ if "df_result" in st.session_state:
 
     chart_data = st.session_state["chart_data"]
 
-    # ====================================
-    # 篩選
-    # ====================================
-
     filtered = df_result[
         (df_result["分數"] >= min_score)
         &
@@ -662,7 +761,7 @@ if "df_result" in st.session_state:
     st.divider()
 
     # ====================================
-    # 分類顯示
+    # 分類
     # ====================================
 
     st.subheader("🔥 YES")
