@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import re
-from openai import OpenAI
+import google.generativeai as genai
 
 # ========================================
 # 頁面設定
@@ -21,15 +21,23 @@ st.title("🔥 台股波段選股系統 AI版")
 # Secrets
 # ========================================
 
-OPENAI_KEY = st.secrets["OPENAI_API_KEY"]
-TOKEN = st.secrets["FINMIND_TOKEN"]
+GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
+FINMIND_TOKEN = st.secrets["FINMIND_TOKEN"]
 
 # ========================================
-# Headers
+# Gemini
+# ========================================
+
+genai.configure(api_key=GEMINI_KEY)
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+# ========================================
+# FinMind
 # ========================================
 
 headers = {
-    "Authorization": f"Bearer {TOKEN}"
+    "Authorization": f"Bearer {FINMIND_TOKEN}"
 }
 
 url = "https://api.finmindtrade.com/api/v4/data"
@@ -81,7 +89,7 @@ def get_valid_date(stock_id):
     return None
 
 # ========================================
-# 分析函數
+# 股票分析
 # ========================================
 
 def analyze(stock_id):
@@ -201,7 +209,7 @@ def analyze(stock_id):
     ) * 100
 
     # ====================================
-    # 紅K
+    # 紅K數
     # ====================================
 
     recent_5 = df.tail(5)
@@ -306,50 +314,7 @@ def analyze(stock_id):
 
     signal = "WAIT"
 
-    # YES
     if (
-
-        latest["close"] > latest["EMA20"]
-
-        and latest["MA5"] > latest["EMA20"]
-
-        and latest["K"] > latest["D"]
-
-        and latest["K"] < 70
-
-        and vol_ratio > 1.0
-
-        and week_change < 12
-
-        and bias_ma5 < 5
-
-        and bias_ema20 < 10
-
-        and foreign_week > 0
-
-    ):
-
-        signal = "YES"
-
-    # HOT
-    elif (
-
-        latest["close"] > latest["EMA20"]
-
-        and latest["K"] > latest["D"]
-
-        and latest["K"] >= 70
-
-        and vol_ratio > 0.8
-
-        and foreign_month > 0
-
-    ):
-
-        signal = "HOT"
-
-    # EARLY
-    elif (
 
         latest["close"] > latest["EMA20"]
 
@@ -357,7 +322,7 @@ def analyze(stock_id):
 
         and latest["K"] < 75
 
-        and vol_ratio > 0.8
+        and vol_ratio > 1
 
         and week_change < 15
 
@@ -367,24 +332,15 @@ def analyze(stock_id):
 
         signal = "EARLY"
 
-    # NO
-    elif (
+    if (
 
         latest["close"] < latest["EMA20"]
 
         and latest["K"] < latest["D"]
 
-        and foreign_week < 0
-
-        and trust_week < 0
-
     ):
 
         signal = "NO"
-
-    else:
-
-        signal = "WAIT"
 
     return {
 
@@ -443,6 +399,7 @@ if st.button("開始分析"):
                 results.append(result)
 
         except Exception as e:
+
             st.error(f"{stock_id} 錯誤：{e}")
 
         progress.progress((idx + 1) / len(watchlist))
@@ -451,102 +408,34 @@ if st.button("開始分析"):
 
     st.session_state["df_result"] = df_result
 
-    if df_result.empty:
-        st.warning("沒有資料")
-        st.stop()
-
-    order = {
-        "YES": 0,
-        "HOT": 1,
-        "EARLY": 2,
-        "WAIT": 3,
-        "NO": 4
-    }
-
-    df_result["排序"] = (
-        df_result["判斷"]
-        .map(order)
-    )
-
-    df_result = df_result.sort_values(
-        ["排序", "量比", "外資週"],
-        ascending=[True, False, False]
-    )
-
-    # ====================================
-    # 顯示
-    # ====================================
-
-    st.subheader("🔥 YES")
-    st.dataframe(
-        df_result[
-            df_result["判斷"] == "YES"
-        ],
-        use_container_width=True
-    )
-
-    st.subheader("🔥 HOT")
-    st.dataframe(
-        df_result[
-            df_result["判斷"] == "HOT"
-        ],
-        use_container_width=True
-    )
-
-    st.subheader("🟢 EARLY")
-    st.dataframe(
-        df_result[
-            df_result["判斷"] == "EARLY"
-        ],
-        use_container_width=True
-    )
-
-    st.subheader("⚪ WAIT")
-    st.dataframe(
-        df_result[
-            df_result["判斷"] == "WAIT"
-        ],
-        use_container_width=True
-    )
-
-    st.subheader("❌ NO")
-    st.dataframe(
-        df_result[
-            df_result["判斷"] == "NO"
-        ],
-        use_container_width=True
-    )
-
-    st.subheader("📊 全部")
-    st.dataframe(
-        df_result.drop(columns=["排序"]),
-        use_container_width=True
-    )
-
 # ========================================
-# AI 分析
+# 顯示
 # ========================================
 
 if "df_result" in st.session_state:
 
     df_result = st.session_state["df_result"]
 
-    st.subheader("🤖 AI 股票分析")
+    st.subheader("📊 全部")
 
-    selected_stock = st.selectbox(
-        "選擇股票",
-        df_result["股票"]
+    st.dataframe(
+        df_result,
+        use_container_width=True
     )
 
-    if st.button("開始 AI 分析"):
+    # ====================================
+    # AI 分析
+    # ====================================
 
-        client = OpenAI(api_key=OPENAI_KEY)
+    st.subheader("🤖 AI 股票分析")
 
-        stock_data = df_result[
-            df_result["股票"] == selected_stock
-        ].iloc[0]
+    top_stocks = df_result.head(3)
 
-        prompt = f'''
+    for _, stock_data in top_stocks.iterrows():
+
+        st.markdown(f"## {stock_data['股票']}")
+
+        prompt = f"""
 請分析以下台股：
 
 股票：{stock_data["股票"]}
@@ -575,20 +464,10 @@ D：{stock_data["D"]}
 3. 是否適合追
 4. 支撐壓力
 5. 風險
-'''
+"""
 
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
+        response = model.generate_content(prompt)
 
-        ai_text = response.choices[0].message.content
+        st.write(response.text)
 
-        st.subheader("🤖 AI 分析結果")
-
-        st.write(ai_text)
+        st.divider()
