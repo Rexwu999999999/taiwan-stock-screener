@@ -356,6 +356,30 @@ def analyze(stock_id):
         )
 
     # ====================================
+    # 主力方向
+    # ====================================
+
+    main_force = "混合"
+
+    if (
+        foreign_trend in ["連買", "偏多"]
+        and trust_trend in ["連買", "偏多"]
+    ):
+        main_force = "雙法人偏多"
+
+    elif foreign_trend in ["連買", "偏多"]:
+        main_force = "外資主導"
+
+    elif trust_trend in ["連買", "偏多"]:
+        main_force = "投信主導"
+
+    elif (
+        foreign_trend in ["連賣", "偏空"]
+        and trust_trend in ["連賣", "偏空"]
+    ):
+        main_force = "雙法人偏空"
+
+    # ====================================
     # 分數
     # ====================================
 
@@ -532,7 +556,7 @@ def analyze(stock_id):
         and latest["K"] > latest["D"]
         and latest["K"] >= 45
         and latest["K"] <= 65
-        and vol_ratio > 1
+        and vol_ratio > 0.6
         and week_change < 8
         and bias_ma5 < 5
         and foreign_trend in ["連買", "偏多"]
@@ -551,7 +575,7 @@ def analyze(stock_id):
     elif (
         latest["close"] > latest["EMA20"]
         and latest["K"] > latest["D"]
-        and latest["K"] >= 70
+        and latest["K"] >= 80
         and week_change < 18
         and bias_ma5 < 10
         and foreign_trend != "連賣"
@@ -573,6 +597,24 @@ def analyze(stock_id):
         and latest["K"] < latest["D"]
     ):
         signal = "NO"
+
+    # ====================================
+    # 波段燈號
+    # ====================================
+
+    signal_light = "⚪"
+
+    if signal == "YES":
+        signal_light = "🟢"
+
+    elif signal == "HOT":
+        signal_light = "🔥"
+
+    elif signal == "EARLY":
+        signal_light = "🟡"
+
+    elif signal == "NO":
+        signal_light = "🔴"
 
     # ====================================
     # 建議
@@ -624,7 +666,7 @@ def analyze(stock_id):
         entry_zone = "不建議進場"
 
     # ====================================
-    # 停損價 / 目標價 / RR
+    # 停損價 / 目標價 / 真實RR
     # ====================================
 
     stop_loss = round(
@@ -632,10 +674,10 @@ def analyze(stock_id):
         2
     )
 
+    recent_high = df.tail(60)["max"].max()
+
     target_price = round(
-        latest["close"] + (
-            latest["close"] - stop_loss
-        ) * 2,
+        recent_high,
         2
     )
 
@@ -647,6 +689,20 @@ def analyze(stock_id):
     if risk_amt > 0:
         rr = round(reward_amt / risk_amt, 2)
 
+    rr_level = "低"
+
+    if rr >= 3:
+        rr_level = "極佳"
+
+    elif rr >= 2:
+        rr_level = "優"
+
+    elif rr >= 1:
+        rr_level = "普通"
+
+    else:
+        rr_level = "差"
+
     # ====================================
     # 視覺化欄位
     # ====================================
@@ -656,8 +712,8 @@ def analyze(stock_id):
         min(score, 10)
     )
 
-    score_bar = "█" * score_clamped
-    score_bar += "░" * (10 - score_clamped)
+    score_bar = "🟩" * score_clamped
+    score_bar += "⬛" * (10 - score_clamped)
 
     heat = 0
     heat += min(max(week_change, 0), 10)
@@ -721,9 +777,11 @@ def analyze(stock_id):
         "投信月": int(trust_month),
         "外資趨勢": foreign_trend,
         "投信趨勢": trust_trend,
+        "主力方向": main_force,
         "分數": int(score),
         "分數條": f"{score_bar} {score}/10",
         "回檔分數": int(pullback_score),
+        "波段燈號": signal_light,
         "判斷": signal,
         "建議": action,
         "進場": entry_visual,
@@ -731,6 +789,7 @@ def analyze(stock_id):
         "停損價": stop_loss,
         "目標價": target_price,
         "RR": rr,
+        "RR評級": rr_level,
         "型態": setup,
         "波段階段": stage,
         "階段燈號": stage_color,
@@ -942,7 +1001,7 @@ if "df_result" in st.session_state:
 
             st.markdown(
                 f"""
-### {row['股票']}
+### {row['股票']} {row['波段燈號']}
 
 **{row['判斷']}**
 
@@ -956,6 +1015,8 @@ if "df_result" in st.session_state:
 
 風險：{row['風險視覺']} {row['風險']}
 
+主力：{row['主力方向']}
+
 外資：{row['外資趨勢']}
 
 投信：{row['投信趨勢']}
@@ -963,7 +1024,7 @@ if "df_result" in st.session_state:
 入場：  
 {row['入場區間']}
 
-RR：{row['RR']}
+RR：{row['RR']}（{row['RR評級']}）
 """
             )
 
@@ -1002,19 +1063,23 @@ RR：{row['RR']}
             f"""
 股票：{stock_row["股票"]}
 
+波段燈號：{stock_row["波段燈號"]}
+
 判斷：{stock_row["判斷"]}
 
 型態：{stock_row["型態"]}
 
 波段階段：{stock_row["階段燈號"]} {stock_row["波段階段"]}
 
-分數：{stock_row["分數"]}
-
-分數條：{stock_row["分數條"]}
+主力方向：{stock_row["主力方向"]}
 
 外資趨勢：{stock_row["外資趨勢"]}
 
 投信趨勢：{stock_row["投信趨勢"]}
+
+分數：{stock_row["分數"]}
+
+分數條：{stock_row["分數條"]}
 
 入場區間：{stock_row["入場區間"]}
 
@@ -1022,7 +1087,7 @@ RR：{row['RR']}
 
 目標價：{stock_row["目標價"]}
 
-RR：{stock_row["RR"]}
+RR：{stock_row["RR"]}（{stock_row["RR評級"]}）
 
 FOMO風險：{stock_row["FOMO風險"]}
 
