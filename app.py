@@ -18,30 +18,11 @@ st.set_page_config(
 st.title("🔥 台股波段選股系統 AI版")
 
 # ========================================
-# FinMind Token
+# Secrets
 # ========================================
 
-TOKEN = st.sidebar.text_input(
-    "FinMind Token",
-    type="password"
-)
-
-# ========================================
-# OpenAI API Key
-# ========================================
-
-OPENAI_KEY = st.sidebar.text_input(
-    "OpenAI API Key",
-    type="password"
-)
-
-# ========================================
-# OpenAI Client
-# ========================================
-
-client = OpenAI(
-    api_key=OPENAI_KEY
-)
+OPENAI_KEY = st.secrets["OPENAI_API_KEY"]
+TOKEN = st.secrets["FINMIND_TOKEN"]
 
 # ========================================
 # Headers
@@ -448,10 +429,6 @@ def analyze(stock_id):
 
 if st.button("開始分析"):
 
-    if TOKEN == "":
-        st.error("請輸入 FinMind Token")
-        st.stop()
-
     results = []
 
     progress = st.progress(0)
@@ -556,6 +533,8 @@ if st.button("開始分析"):
     )
 
     if st.button("開始 AI 分析"):
+
+        client = OpenAI(api_key=OPENAI_KEY)
 
         stock_data = df_result[
             df_result["股票"] == selected_stock
