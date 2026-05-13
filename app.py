@@ -114,6 +114,52 @@ def net_buy(data, name):
     return (x["buy"] - x["sell"]).sum()
 
 # ========================================
+# 法人趨勢判斷
+# ========================================
+
+def investor_trend(inst, investor_name):
+
+    trend = "中立"
+
+    if inst.empty:
+        return trend
+
+    only = inst[
+        inst["name"] == investor_name
+    ].copy()
+
+    if only.empty:
+        return trend
+
+    only["net"] = (
+        only["buy"]
+        - only["sell"]
+    )
+
+    recent = (
+        only["net"]
+        .tail(5)
+        .tolist()
+    )
+
+    positive_days = sum(x > 0 for x in recent)
+    negative_days = sum(x < 0 for x in recent)
+
+    if positive_days >= 4:
+        trend = "連買"
+
+    elif negative_days >= 4:
+        trend = "連賣"
+
+    elif positive_days > negative_days:
+        trend = "偏多"
+
+    elif negative_days > positive_days:
+        trend = "偏空"
+
+    return trend
+
+# ========================================
 # 單股分析
 # ========================================
 
@@ -253,7 +299,9 @@ def analyze(stock_id):
     trust_week = 0
     foreign_month = 0
     trust_month = 0
+
     foreign_trend = "中立"
+    trust_trend = "中立"
 
     if not inst.empty:
 
@@ -277,42 +325,35 @@ def analyze(stock_id):
             (inst["date"].dt.year == latest_year)
         ]
 
-        foreign_week = net_buy(week_inst, "Foreign_Investor")
-        trust_week = net_buy(week_inst, "Investment_Trust")
-
-        foreign_month = net_buy(month_inst, "Foreign_Investor")
-        trust_month = net_buy(month_inst, "Investment_Trust")
-
-        # 外資連續性
-        foreign_only = inst[
-            inst["name"] == "Foreign_Investor"
-        ].copy()
-
-        foreign_only["net"] = (
-            foreign_only["buy"]
-            - foreign_only["sell"]
+        foreign_week = net_buy(
+            week_inst,
+            "Foreign_Investor"
         )
 
-        foreign_recent = (
-            foreign_only["net"]
-            .tail(5)
-            .tolist()
+        trust_week = net_buy(
+            week_inst,
+            "Investment_Trust"
         )
 
-        positive_days = sum(x > 0 for x in foreign_recent)
-        negative_days = sum(x < 0 for x in foreign_recent)
+        foreign_month = net_buy(
+            month_inst,
+            "Foreign_Investor"
+        )
 
-        if positive_days >= 4:
-            foreign_trend = "連買"
+        trust_month = net_buy(
+            month_inst,
+            "Investment_Trust"
+        )
 
-        elif negative_days >= 4:
-            foreign_trend = "連賣"
+        foreign_trend = investor_trend(
+            inst,
+            "Foreign_Investor"
+        )
 
-        elif positive_days > negative_days:
-            foreign_trend = "偏多"
-
-        elif negative_days > positive_days:
-            foreign_trend = "偏空"
+        trust_trend = investor_trend(
+            inst,
+            "Investment_Trust"
+        )
 
     # ====================================
     # 分數
@@ -338,6 +379,7 @@ def analyze(stock_id):
     if vol_ratio >= 1.2:
         score += 1
 
+    # 外資趨勢
     if foreign_trend == "連買":
         score += 3
 
@@ -350,13 +392,23 @@ def analyze(stock_id):
     elif foreign_trend == "偏空":
         score -= 1
 
-    if trust_week > 0:
-        score += 2
+    # 投信趨勢
+    if trust_trend == "連買":
+        score += 3
 
-    if trust_month > 0:
+    elif trust_trend == "偏多":
         score += 1
 
+    elif trust_trend == "連賣":
+        score -= 3
+
+    elif trust_trend == "偏空":
+        score -= 1
+
     if foreign_month > 0:
+        score += 1
+
+    if trust_month > 0:
         score += 1
 
     if week_change > 0:
@@ -484,12 +536,14 @@ def analyze(stock_id):
         and week_change < 8
         and bias_ma5 < 5
         and foreign_trend in ["連買", "偏多"]
+        and trust_trend != "連賣"
     ):
         signal = "YES"
 
     elif (
         setup == "回檔轉強"
-        and foreign_trend in ["連買", "偏多"]
+        and foreign_trend in ["連買", "偏多", "中立"]
+        and trust_trend != "連賣"
         and risk != "高"
     ):
         signal = "YES"
@@ -501,6 +555,7 @@ def analyze(stock_id):
         and week_change < 18
         and bias_ma5 < 10
         and foreign_trend != "連賣"
+        and trust_trend != "連賣"
     ):
         signal = "HOT"
 
@@ -572,7 +627,10 @@ def analyze(stock_id):
     # 停損價 / 目標價 / RR
     # ====================================
 
-    stop_loss = round(recent_5["min"].min(), 2)
+    stop_loss = round(
+        recent_5["min"].min(),
+        2
+    )
 
     target_price = round(
         latest["close"] + (
@@ -593,8 +651,13 @@ def analyze(stock_id):
     # 視覺化欄位
     # ====================================
 
-    score_bar = "█" * min(score, 10)
-    score_bar += "░" * (10 - min(score, 10))
+    score_clamped = max(
+        0,
+        min(score, 10)
+    )
+
+    score_bar = "█" * score_clamped
+    score_bar += "░" * (10 - score_clamped)
 
     heat = 0
     heat += min(max(week_change, 0), 10)
@@ -657,6 +720,7 @@ def analyze(stock_id):
         "外資月": int(foreign_month),
         "投信月": int(trust_month),
         "外資趨勢": foreign_trend,
+        "投信趨勢": trust_trend,
         "分數": int(score),
         "分數條": f"{score_bar} {score}/10",
         "回檔分數": int(pullback_score),
@@ -854,14 +918,22 @@ if "df_result" in st.session_state:
     )
 
     # ====================================
-    # TOP5
+    # TOP5：真正強度排序
     # ====================================
 
     st.divider()
 
-    st.subheader("🏆 TOP5 強勢股")
+    st.subheader("🏆 TOP5 真強勢股")
 
-    top5 = filtered.head(5)
+    top5 = (
+        filtered
+        .sort_values(
+            ["分數", "回檔分數", "量比"],
+            ascending=[False, False, False]
+        )
+        .head(5)
+    )
+
     cols = st.columns(5)
 
     for idx, (_, row) in enumerate(top5.iterrows()):
@@ -885,6 +957,8 @@ if "df_result" in st.session_state:
 風險：{row['風險視覺']} {row['風險']}
 
 外資：{row['外資趨勢']}
+
+投信：{row['投信趨勢']}
 
 入場：  
 {row['入場區間']}
@@ -939,6 +1013,8 @@ RR：{row['RR']}
 分數條：{stock_row["分數條"]}
 
 外資趨勢：{stock_row["外資趨勢"]}
+
+投信趨勢：{stock_row["投信趨勢"]}
 
 入場區間：{stock_row["入場區間"]}
 
