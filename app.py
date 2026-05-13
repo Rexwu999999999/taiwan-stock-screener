@@ -1,3 +1,11 @@
+# ========================================
+# 視覺化 + 外資連續性升級版
+# 直接覆蓋 analyze() 裡面對應區塊
+# ========================================
+
+# ====================================
+# 法人資料
+# ====================================
 
 params = {
     "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
@@ -477,78 +485,319 @@ elif stage == "轉弱":
 return {
 
     "股票": stock_id,
-
     "收盤價": round(latest["close"], 2),
-
     "MA5": round(latest["MA5"], 2),
-
     "MA10": round(latest["MA10"], 2),
-
     "EMA20": round(latest["EMA20"], 2),
-
     "EMA60": round(latest["EMA60"], 2),
-
     "量比": round(vol_ratio, 2),
-
     "K": round(latest["K"], 1),
-
     "D": round(latest["D"], 1),
-
     "本週%": round(week_change, 2),
-
     "MA5乖離%": round(bias_ma5, 2),
-
     "EMA20乖離%": round(bias_ema20, 2),
-
     "紅K數": int(red_count),
-
     "黑K數": int(black_count),
-
     "外資週": int(foreign_week),
-
     "投信週": int(trust_week),
-
     "外資月": int(foreign_month),
-
     "投信月": int(trust_month),
-
     "外資趨勢": foreign_trend,
-
     "分數": int(score),
-
     "分數條": f"{score_bar} {score}/10",
-
     "回檔分數": int(pullback_score),
-
     "判斷": signal,
-
     "建議": action,
-
     "進場": entry_visual,
-
     "入場區間": entry_zone,
-
     "停損價": stop_loss,
-
     "目標價": target_price,
-
     "RR": rr,
-
     "型態": setup,
-
     "波段階段": stage,
-
     "階段燈號": stage_color,
-
     "熱度": heat_bar,
-
     "FOMO風險": int(fomo),
-
     "風險視覺": risk_icon,
-
     "風險": risk,
-
     "資料日期": end_date
 
 }, df
-```
+# ========================================
+# K線圖
+# ========================================
+
+def plot_kline(df, stock_id):
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Candlestick(
+            x=df["date"],
+            open=df["open"],
+            high=df["max"],
+            low=df["min"],
+            close=df["close"],
+            name="K線"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["MA5"],
+            mode="lines",
+            name="MA5"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["EMA20"],
+            mode="lines",
+            name="EMA20"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["EMA60"],
+            mode="lines",
+            name="EMA60"
+        )
+    )
+
+    fig.update_layout(
+        title=f"{stock_id} K線圖",
+        xaxis_rangeslider_visible=False,
+        height=650,
+        template="plotly_dark"
+    )
+
+    return fig
+
+# ========================================
+# 開始分析
+# ========================================
+
+if start_btn:
+
+    results = []
+
+    chart_data = {}
+
+    progress = st.progress(0)
+
+    for idx, stock_id in enumerate(watchlist):
+
+        try:
+
+            result, df = analyze(stock_id)
+
+            if result:
+
+                results.append(result)
+
+                chart_data[stock_id] = df
+
+        except Exception as e:
+
+            st.error(f"{stock_id} 錯誤：{e}")
+
+        progress.progress(
+            (idx + 1) / len(watchlist)
+        )
+
+    df_result = pd.DataFrame(results)
+
+    if not df_result.empty:
+
+        latest_trade_date = df_result["資料日期"].max()
+
+        st.success(
+            f"最新交易日：{latest_trade_date}"
+        )
+
+        order = {
+            "YES": 0,
+            "HOT": 1,
+            "EARLY": 2,
+            "WAIT": 3,
+            "NO": 4
+        }
+
+        df_result["排序"] = (
+            df_result["判斷"]
+            .map(order)
+        )
+
+        df_result = df_result.sort_values(
+            ["排序", "分數", "回檔分數", "量比"],
+            ascending=[True, False, False, False]
+        )
+
+        st.session_state["df_result"] = df_result
+
+        st.session_state["chart_data"] = chart_data
+
+# ========================================
+# 顯示資料
+# ========================================
+
+if "df_result" in st.session_state:
+
+    df_result = st.session_state["df_result"]
+
+    chart_data = st.session_state["chart_data"]
+
+    filtered = df_result[
+        (df_result["分數"] >= min_score)
+        &
+        (df_result["本週%"] <= max_week_gain)
+        &
+        (df_result["MA5乖離%"] <= max_ma5_bias)
+        &
+        (df_result["量比"] >= min_vol_ratio)
+    ]
+
+    # ====================================
+    # 統計
+    # ====================================
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    c1.metric("股票數", len(df_result))
+
+    c2.metric(
+        "YES",
+        len(df_result[df_result["判斷"] == "YES"])
+    )
+
+    c3.metric(
+        "HOT",
+        len(df_result[df_result["判斷"] == "HOT"])
+    )
+
+    c4.metric(
+        "EARLY",
+        len(df_result[df_result["判斷"] == "EARLY"])
+    )
+
+    c5.metric(
+        "NO",
+        len(df_result[df_result["判斷"] == "NO"])
+    )
+
+    st.divider()
+
+    # ====================================
+    # 視覺化表格
+    # ====================================
+
+    def row_color(row):
+
+        if row["判斷"] == "YES":
+            return [
+                "background-color: #112b1d"
+            ] * len(row)
+
+        elif row["判斷"] == "HOT":
+            return [
+                "background-color: #332211"
+            ] * len(row)
+
+        elif row["判斷"] == "EARLY":
+            return [
+                "background-color: #1b2233"
+            ] * len(row)
+
+        elif row["判斷"] == "NO":
+            return [
+                "background-color: #1a1a1a"
+            ] * len(row)
+
+        return [""] * len(row)
+
+    styled_df = (
+        filtered
+        .drop(columns=["排序"])
+        .style
+        .apply(row_color, axis=1)
+    )
+
+    st.subheader("📊 波段分析結果")
+
+    st.dataframe(
+        styled_df,
+        use_container_width=True,
+        height=700
+    )
+
+    # ====================================
+    # TOP5
+    # ====================================
+
+    st.divider()
+
+    st.subheader("🏆 TOP5 強勢股")
+
+    top5 = filtered.head(5)
+
+    cols = st.columns(5)
+
+    for idx, (_, row) in enumerate(top5.iterrows()):
+
+        with cols[idx]:
+
+            st.markdown(
+                f"""
+                ### {row['股票']}
+
+                #### {row['判斷']}
+
+                收盤：{row['收盤價']}
+
+                分數：{row['分數']}
+
+                {row['分數條']}
+
+                熱度：{row['熱度']}
+
+                風險：{row['風險視覺']} {row['風險']}
+
+                外資：{row['外資趨勢']}
+
+                入場：
+                {row['入場區間']}
+
+                RR：
+                {row['RR']}
+                """
+            )
+
+    # ====================================
+    # K線圖
+    # ====================================
+
+    st.divider()
+
+    st.subheader("📈 K線圖")
+
+    selected_stock = st.selectbox(
+        "選擇股票",
+        filtered["股票"].tolist()
+    )
+
+    if selected_stock in chart_data:
+
+        fig = plot_kline(
+            chart_data[selected_stock],
+            selected_stock
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
