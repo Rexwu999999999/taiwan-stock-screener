@@ -449,6 +449,8 @@ if st.button("開始分析"):
 
     df_result = pd.DataFrame(results)
 
+    st.session_state["df_result"] = df_result
+
     if df_result.empty:
         st.warning("沒有資料")
         st.stop()
@@ -521,9 +523,13 @@ if st.button("開始分析"):
         use_container_width=True
     )
 
-    # ====================================
-    # AI 分析
-    # ====================================
+# ========================================
+# AI 分析
+# ========================================
+
+if "df_result" in st.session_state:
+
+    df_result = st.session_state["df_result"]
 
     st.subheader("🤖 AI 股票分析")
 
@@ -582,5 +588,7 @@ D：{stock_data["D"]}
         )
 
         ai_text = response.choices[0].message.content
+
+        st.subheader("🤖 AI 分析結果")
 
         st.write(ai_text)
