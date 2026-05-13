@@ -644,3 +644,244 @@ def analyze(stock_id):
         "資料日期": end_date
 
     }, df
+# ========================================
+# K線圖
+# ========================================
+
+def plot_kline(df, stock_id):
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Candlestick(
+            x=df["date"],
+            open=df["open"],
+            high=df["max"],
+            low=df["min"],
+            close=df["close"],
+            name="K線"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["MA5"],
+            mode="lines",
+            name="MA5"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["EMA20"],
+            mode="lines",
+            name="EMA20"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["EMA60"],
+            mode="lines",
+            name="EMA60"
+        )
+    )
+
+    fig.update_layout(
+        title=f"{stock_id} K線圖",
+        xaxis_rangeslider_visible=False,
+        height=650
+    )
+
+    return fig
+
+# ========================================
+# 開始分析
+# ========================================
+
+if start_btn:
+
+    results = []
+
+    chart_data = {}
+
+    progress = st.progress(0)
+
+    for idx, stock_id in enumerate(watchlist):
+
+        try:
+
+            result, df = analyze(stock_id)
+
+            if result:
+
+                results.append(result)
+
+                chart_data[stock_id] = df
+
+        except Exception as e:
+
+            st.error(f"{stock_id} 錯誤：{e}")
+
+        progress.progress(
+            (idx + 1) / len(watchlist)
+        )
+
+    df_result = pd.DataFrame(results)
+
+    if not df_result.empty:
+
+        latest_trade_date = df_result["資料日期"].max()
+
+        st.info(f"目前最新交易日：{latest_trade_date}")
+
+        order = {
+            "YES": 0,
+            "HOT": 1,
+            "EARLY": 2,
+            "WAIT": 3,
+            "NO": 4
+        }
+
+        df_result["排序"] = (
+            df_result["判斷"]
+            .map(order)
+        )
+
+        df_result = df_result.sort_values(
+            ["排序", "分數", "回檔分數", "量比"],
+            ascending=[True, False, False, False]
+        )
+
+        st.session_state["df_result"] = df_result
+
+        st.session_state["chart_data"] = chart_data
+
+# ========================================
+# 顯示資料
+# ========================================
+
+if "df_result" in st.session_state:
+
+    df_result = st.session_state["df_result"]
+
+    chart_data = st.session_state["chart_data"]
+
+    filtered = df_result[
+        (df_result["分數"] >= min_score)
+        &
+        (df_result["本週%"] <= max_week_gain)
+        &
+        (df_result["MA5乖離%"] <= max_ma5_bias)
+        &
+        (df_result["量比"] >= min_vol_ratio)
+    ]
+
+    # ====================================
+    # 統計
+    # ====================================
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    c1.metric("股票數", len(df_result))
+
+    c2.metric(
+        "YES",
+        len(df_result[df_result["判斷"] == "YES"])
+    )
+
+    c3.metric(
+        "HOT",
+        len(df_result[df_result["判斷"] == "HOT"])
+    )
+
+    c4.metric(
+        "EARLY",
+        len(df_result[df_result["判斷"] == "EARLY"])
+    )
+
+    c5.metric(
+        "NO",
+        len(df_result[df_result["判斷"] == "NO"])
+    )
+
+    st.divider()
+
+    # ====================================
+    # 顯示表格
+    # ====================================
+
+    st.subheader("🔥 YES")
+    st.dataframe(
+        df_result[
+            df_result["判斷"] == "YES"
+        ].drop(columns=["排序"]),
+        use_container_width=True
+    )
+
+    st.subheader("🔥 HOT")
+    st.dataframe(
+        df_result[
+            df_result["判斷"] == "HOT"
+        ].drop(columns=["排序"]),
+        use_container_width=True
+    )
+
+    st.subheader("🟢 EARLY")
+    st.dataframe(
+        df_result[
+            df_result["判斷"] == "EARLY"
+        ].drop(columns=["排序"]),
+        use_container_width=True
+    )
+
+    st.subheader("⚪ WAIT")
+    st.dataframe(
+        df_result[
+            df_result["判斷"] == "WAIT"
+        ].drop(columns=["排序"]),
+        use_container_width=True
+    )
+
+    st.subheader("❌ NO")
+    st.dataframe(
+        df_result[
+            df_result["判斷"] == "NO"
+        ].drop(columns=["排序"]),
+        use_container_width=True
+    )
+
+    st.subheader("📊 篩選後全部")
+
+    st.dataframe(
+        filtered.drop(columns=["排序"]),
+        use_container_width=True
+    )
+
+    # ====================================
+    # K線圖
+    # ====================================
+
+    st.divider()
+
+    st.subheader("📈 K線圖")
+
+    selected_stock = st.selectbox(
+        "選擇股票",
+        df_result["股票"].tolist()
+    )
+
+    if selected_stock in chart_data:
+
+        fig = plot_kline(
+            chart_data[selected_stock],
+            selected_stock
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
