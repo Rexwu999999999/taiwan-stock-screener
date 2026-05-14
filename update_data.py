@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import time
 import os
 
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
+FINMIND_TOKEN = "你的token"
 
 headers = {
     "Authorization": f"Bearer {FINMIND_TOKEN}"
@@ -101,6 +101,11 @@ for stock_id in watchlist:
 
         latest = df.iloc[-1]
 
+        close_price = round(
+            latest["close"],
+            2
+        )
+
         df["MA5"] = (
             df["close"]
             .rolling(5)
@@ -123,12 +128,19 @@ for stock_id in watchlist:
             2
         )
 
-        close_price = round(
-            latest["close"],
+        high_60 = df["close"].tail(60).max()
+
+        low_20 = df["close"].tail(20).min()
+
+        resistance = round(
+            high_60,
             2
         )
 
-        high_60 = df["close"].tail(60).max()
+        support = round(
+            low_20,
+            2
+        )
 
         distance_high = round(
             (
@@ -138,16 +150,28 @@ for stock_id in watchlist:
             2
         )
 
+        reward = resistance - close_price
+
+        risk = close_price - support
+
+        rr = 0
+
+        if risk > 0:
+            rr = round(
+                reward / risk,
+                2
+            )
+
         ai_score = 0
 
-        # 趨勢分
+        # 趨勢
         if close_price > ma5:
             ai_score += 2
 
         if close_price > ema20:
             ai_score += 3
 
-        # 位置分
+        # 位置
         if distance_high < 3:
             ai_score -= 3
 
@@ -157,11 +181,21 @@ for stock_id in watchlist:
         elif distance_high > 20:
             ai_score -= 2
 
-        # 交易品質
+        # RR
+        if rr >= 3:
+            ai_score += 3
+
+        elif rr >= 2:
+            ai_score += 2
+
+        elif rr < 1:
+            ai_score -= 3
+
+        # 品質
         quality = "普通"
 
-        if ai_score >= 6:
-            quality = "優"
+        if ai_score >= 7:
+            quality = "漂亮"
 
         elif ai_score >= 4:
             quality = "可觀察"
@@ -185,10 +219,16 @@ for stock_id in watchlist:
             int(latest["Trading_Volume"]),
 
             "60日高點":
-            round(high_60, 2),
+            resistance,
+
+            "20日低點":
+            support,
 
             "距離前高%":
             distance_high,
+
+            "RR":
+            rr,
 
             "AI分數":
             ai_score,
@@ -203,9 +243,9 @@ for stock_id in watchlist:
 
         time.sleep(0.5)
 
-    except:
+    except Exception as e:
 
-        print(stock_id, "error")
+        print(stock_id, e)
 
 final_df = pd.DataFrame(all_data)
 
