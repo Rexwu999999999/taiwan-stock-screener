@@ -286,7 +286,7 @@ def analyze_stock(stock_row, df):
         "名稱": stock_name,
         "市場": market,
         "族群": theme,
-        "日期": str(df.index[-1].date()),
+        "日期": datetime.now().strftime("%Y-%m-%d"),,
         "收盤價": close_price,
         "MA5": ma5,
         "EMA20": ema20,
