@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import time
 import os
 
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
+FINMIND_TOKEN = "你的token"
 
 headers = {
     "Authorization": f"Bearer {FINMIND_TOKEN}"
@@ -124,7 +124,9 @@ def get_institutional_days(stock_id):
 
         return foreign_days, invest_days
 
-    except:
+    except Exception as e:
+
+        print(stock_id, e)
 
         return 0, 0
 
@@ -134,6 +136,8 @@ all_data = []
 for stock_id in watchlist:
 
     try:
+
+        print(f"處理 {stock_id}")
 
         end_date = get_valid_date(stock_id)
 
@@ -181,14 +185,20 @@ for stock_id in watchlist:
             .mean()
         )
 
+        ma5 = round(df.iloc[-1]["MA5"], 2)
+
+        ema20 = round(df.iloc[-1]["EMA20"], 2)
+
+        close_price = round(latest["close"], 2)
+
         foreign_days, invest_days = get_institutional_days(stock_id)
 
         ai_score = 0
 
-        if latest["close"] > df.iloc[-1]["MA5"]:
+        if close_price > ma5:
             ai_score += 2
 
-        if latest["close"] > df.iloc[-1]["EMA20"]:
+        if close_price > ema20:
             ai_score += 3
 
         if foreign_days >= 3:
@@ -203,14 +213,11 @@ for stock_id in watchlist:
 
             "日期": end_date,
 
-            "收盤價":
-            round(latest["close"], 2),
+            "收盤價": close_price,
 
-            "MA5":
-            round(df.iloc[-1]["MA5"], 2),
+            "MA5": ma5,
 
-            "EMA20":
-            round(df.iloc[-1]["EMA20"], 2),
+            "EMA20": ema20,
 
             "成交量":
             int(latest["Trading_Volume"]),
@@ -237,7 +244,12 @@ for stock_id in watchlist:
 
 final_df = pd.DataFrame(all_data)
 
-if "AI分數" in final_df.columns:
+print(final_df.columns)
+
+if (
+    not final_df.empty
+    and "AI分數" in final_df.columns
+):
 
     final_df = final_df.sort_values(
         by="AI分數",
