@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 FINMIND_TOKEN = os.getenv("FINMIND_TOKEN", "").strip()
 
 if not FINMIND_TOKEN:
-    FINMIND_TOKEN = "PASTE_YOUR_FINMIND_TOKEN_HERE"
+    FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
 
 headers = {
     "Authorization": f"Bearer {FINMIND_TOKEN}"
