@@ -114,7 +114,7 @@ def net_buy(data, name):
     return (x["buy"] - x["sell"]).sum()
 
 # ========================================
-# 法人趨勢判斷
+# 法人趨勢
 # ========================================
 
 def investor_trend(inst, investor_name):
@@ -403,7 +403,6 @@ def analyze(stock_id):
     if vol_ratio >= 1.2:
         score += 1
 
-    # 外資趨勢
     if foreign_trend == "連買":
         score += 3
 
@@ -416,7 +415,6 @@ def analyze(stock_id):
     elif foreign_trend == "偏空":
         score -= 1
 
-    # 投信趨勢
     if trust_trend == "連買":
         score += 3
 
@@ -588,7 +586,6 @@ def analyze(stock_id):
         and latest["K"] > latest["D"]
         and latest["K"] < 65
         and week_change < 8
-        and bias_ma5 < 5
     ):
         signal = "EARLY"
 
@@ -666,7 +663,7 @@ def analyze(stock_id):
         entry_zone = "不建議進場"
 
     # ====================================
-    # 停損價 / 目標價 / 真實RR
+    # 停損價 / 目標價 / RR
     # ====================================
 
     stop_loss = round(
@@ -704,7 +701,7 @@ def analyze(stock_id):
         rr_level = "差"
 
     # ====================================
-    # 視覺化欄位
+    # 視覺化
     # ====================================
 
     score_clamped = max(
@@ -720,6 +717,7 @@ def analyze(stock_id):
     heat += min(max(bias_ma5, 0), 10)
 
     heat_score = int(heat)
+
     heat_bar = "🔥" * min(heat_score // 3, 5)
 
     risk_icon = "🟢"
@@ -904,6 +902,34 @@ if start_btn:
 
         df_result["排序"] = df_result["判斷"].map(order)
 
+        # ====================================
+        # 排除原因
+        # ====================================
+
+        df_result["排除原因"] = ""
+
+        for idx, row in df_result.iterrows():
+
+            reasons = []
+
+            if row["分數"] < min_score:
+                reasons.append("分數不足")
+
+            if row["本週%"] > max_week_gain:
+                reasons.append("本週漲幅過高")
+
+            if row["MA5乖離%"] > max_ma5_bias:
+                reasons.append("MA5乖離過高")
+
+            if row["量比"] < min_vol_ratio:
+                reasons.append("量比不足")
+
+            if len(reasons) == 0:
+                df_result.at[idx, "排除原因"] = "通過"
+
+            else:
+                df_result.at[idx, "排除原因"] = "、".join(reasons)
+
         df_result = df_result.sort_values(
             ["排序", "分數", "回檔分數", "量比"],
             ascending=[True, False, False, False]
@@ -977,7 +1003,35 @@ if "df_result" in st.session_state:
     )
 
     # ====================================
-    # TOP5：真正強度排序
+    # 被排除股票
+    # ====================================
+
+    excluded = df_result[
+        df_result["排除原因"] != "通過"
+    ]
+
+    if not excluded.empty:
+
+        st.divider()
+
+        st.subheader("🚫 被篩選排除")
+
+        st.dataframe(
+            excluded[
+                [
+                    "股票",
+                    "分數",
+                    "本週%",
+                    "MA5乖離%",
+                    "量比",
+                    "排除原因"
+                ]
+            ],
+            use_container_width=True
+        )
+
+    # ====================================
+    # TOP5 真強勢股
     # ====================================
 
     st.divider()
