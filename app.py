@@ -373,6 +373,95 @@ def analyze(stock_id):
     ).sum()
 
     # ====================================
+    # 支撐壓力
+    # ====================================
+
+    support = round(
+        df["min"].tail(20).min(),
+        2
+    )
+
+    resistance = round(
+        df["max"].tail(20).max(),
+        2
+    )
+
+    # ====================================
+    # 距離前高%
+    # ====================================
+
+    distance_high = round(
+        (
+            (resistance - latest["close"])
+            / latest["close"]
+        ) * 100,
+        2
+    )
+
+    # ====================================
+    # 量能狀態
+    # ====================================
+
+    volume_alert = "正常"
+
+    if vol_ratio >= 3:
+        volume_alert = "異常爆量"
+
+    elif vol_ratio >= 2:
+        volume_alert = "放量"
+
+    # ====================================
+    # 主流族群
+    # ====================================
+
+    sector_map = {
+
+        "2308": "AI",
+        "2376": "AI",
+        "2382": "AI",
+        "3017": "AI",
+        "3231": "AI",
+        "6669": "AI",
+        "3443": "AI",
+
+        "3324": "CPO",
+        "4908": "CPO",
+        "4979": "CPO",
+
+        "1519": "重電",
+        "1503": "重電",
+        "1504": "重電",
+
+        "2603": "航運",
+        "2609": "航運",
+        "2615": "航運",
+
+        "8110": "生技",
+
+        "4938": "散熱",
+        "3014": "散熱",
+
+        "2454": "半導體",
+        "2330": "半導體",
+        "2303": "半導體",
+    }
+
+    sector = sector_map.get(
+        stock_id,
+        "其他"
+    )
+
+    hot_sector = "否"
+
+    if sector in [
+        "AI",
+        "CPO",
+        "重電",
+        "半導體"
+    ]:
+        hot_sector = "是"
+
+    # ====================================
     # 法人
     # ====================================
 
@@ -410,61 +499,68 @@ def analyze(stock_id):
         )
 
     # ====================================
-    # 分數
+    # 分數拆解
     # ====================================
 
-    score = 0
+    trend_score = 0
+    chip_score = 0
+    volume_score = 0
+    kd_score = 0
 
+    # 趨勢
     if latest["close"] > latest["EMA20"]:
-        score += 2
+        trend_score += 2
 
     if latest["EMA20"] > latest["EMA60"]:
-        score += 2
+        trend_score += 2
 
     if latest["close"] > latest["MA5"]:
-        score += 1
+        trend_score += 1
 
-    if latest["K"] > latest["D"]:
-        score += 2
-
-    if 35 <= latest["K"] <= 75:
-        score += 1
-
-    if vol_ratio >= 1.2:
-        score += 1
-
+    # 法人
     if foreign_trend == "連買":
-        score += 3
+        chip_score += 3
 
     elif foreign_trend == "偏多":
-        score += 1
-
-    elif foreign_trend == "連賣":
-        score -= 3
-
-    elif foreign_trend == "偏空":
-        score -= 1
+        chip_score += 1
 
     if trust_trend == "連買":
-        score += 3
+        chip_score += 3
 
     elif trust_trend == "偏多":
-        score += 1
+        chip_score += 1
 
-    elif trust_trend == "連賣":
-        score -= 3
+    # 量能
+    if vol_ratio >= 1.2:
+        volume_score += 1
 
-    elif trust_trend == "偏空":
-        score -= 1
+    if vol_ratio >= 2:
+        volume_score += 2
 
-    if week_change > 0:
-        score += 1
+    # KD
+    if latest["K"] > latest["D"]:
+        kd_score += 2
 
-    if bias_ma5 > 8:
-        score -= 2
+    if 35 <= latest["K"] <= 75:
+        kd_score += 1
 
-    if week_change > 20:
-        score -= 2
+    score_reason = (
+        f"趨勢:{trend_score} "
+        f"法人:{chip_score} "
+        f"量能:{volume_score} "
+        f"KD:{kd_score}"
+    )
+
+    # ====================================
+    # 總分
+    # ====================================
+
+    score = (
+        trend_score
+        + chip_score
+        + volume_score
+        + kd_score
+    )
 
     # ====================================
     # 主升段
@@ -504,6 +600,41 @@ def analyze(stock_id):
         and foreign_trend in ["連買", "偏多"]
     ):
         fake_strength = True
+
+    # ====================================
+    # 排除原因
+    # ====================================
+
+    exclude_reasons = []
+
+    if bias_ma5 > 12:
+        exclude_reasons.append("乖離過大")
+
+    if latest["K"] > 85:
+        exclude_reasons.append("高檔鈍化")
+
+    if foreign_trend == "連賣":
+        exclude_reasons.append("外資連賣")
+
+    if trust_trend == "連賣":
+        exclude_reasons.append("投信連賣")
+
+    if latest["close"] < latest["EMA20"]:
+        exclude_reasons.append("跌破EMA20")
+
+    if vol_ratio < 0.8:
+        exclude_reasons.append("量能不足")
+
+    if week_change > 20:
+        exclude_reasons.append("短線過熱")
+
+    exclude_reason = "正常"
+
+    if len(exclude_reasons) > 0:
+
+        exclude_reason = (
+            "、".join(exclude_reasons)
+        )
 
     # ====================================
     # 熱門分數
@@ -636,201 +767,13 @@ def analyze(stock_id):
         )
 
     # ====================================
-    # 回測
-    # ====================================
-
-    backtest_return_5d = 0
-    backtest_return_10d = 0
-    backtest_return_20d = 0
-
-    win_5d = 0
-    win_10d = 0
-    win_20d = 0
-
-    max_drawdown = 0
-
-    avg_hold_days = 0
-
-    historical_returns_5 = []
-    historical_returns_10 = []
-    historical_returns_20 = []
-
-    wins_5 = 0
-    wins_10 = 0
-    wins_20 = 0
-
-    total_signals = 0
-
-    hold_days_list = []
-    drawdowns = []
-
-    for i in range(60, len(df) - 20):
-
-        row = df.iloc[i]
-
-        signal_trigger = False
-
-        if (
-            row["close"] > row["EMA20"]
-            and row["EMA20"] > row["EMA60"]
-            and row["K"] > row["D"]
-            and row["K"] >= 45
-            and row["K"] <= 75
-        ):
-            signal_trigger = True
-
-        if signal_trigger:
-
-            total_signals += 1
-
-            entry_price = df.iloc[i + 1]["open"]
-
-            future_5 = df.iloc[i + 5]["close"]
-            future_10 = df.iloc[i + 10]["close"]
-            future_20 = df.iloc[i + 20]["close"]
-
-            r5 = (
-                (future_5 - entry_price)
-                / entry_price
-            ) * 100
-
-            r10 = (
-                (future_10 - entry_price)
-                / entry_price
-            ) * 100
-
-            r20 = (
-                (future_20 - entry_price)
-                / entry_price
-            ) * 100
-
-            historical_returns_5.append(r5)
-            historical_returns_10.append(r10)
-            historical_returns_20.append(r20)
-
-            if r5 > 0:
-                wins_5 += 1
-
-            if r10 > 0:
-                wins_10 += 1
-
-            if r20 > 0:
-                wins_20 += 1
-
-            future_lows = df.iloc[
-                i + 1 : i + 21
-            ]["min"]
-
-            worst_low = future_lows.min()
-
-            dd = (
-                (worst_low - entry_price)
-                / entry_price
-            ) * 100
-
-            drawdowns.append(dd)
-
-            exit_day = 20
-
-            for j in range(1, 21):
-
-                tmp_close = df.iloc[
-                    i + j
-                ]["close"]
-
-                tmp_return = (
-                    (tmp_close - entry_price)
-                    / entry_price
-                ) * 100
-
-                if tmp_return >= 10:
-                    exit_day = j
-                    break
-
-                if tmp_return <= -5:
-                    exit_day = j
-                    break
-
-            hold_days_list.append(exit_day)
-
-    if total_signals > 0:
-
-        backtest_return_5d = round(
-            sum(historical_returns_5)
-            / len(historical_returns_5),
-            2
-        )
-
-        backtest_return_10d = round(
-            sum(historical_returns_10)
-            / len(historical_returns_10),
-            2
-        )
-
-        backtest_return_20d = round(
-            sum(historical_returns_20)
-            / len(historical_returns_20),
-            2
-        )
-
-        win_5d = round(
-            wins_5 / total_signals * 100,
-            1
-        )
-
-        win_10d = round(
-            wins_10 / total_signals * 100,
-            1
-        )
-
-        win_20d = round(
-            wins_20 / total_signals * 100,
-            1
-        )
-
-        max_drawdown = round(
-            min(drawdowns),
-            2
-        )
-
-        avg_hold_days = round(
-            sum(hold_days_list)
-            / len(hold_days_list),
-            1
-        )
-
-    # ====================================
-    # 回測燈號
-    # ====================================
-
-    backtest_light = "⚪"
-
-    if (
-        win_10d >= 65
-        and backtest_return_10d >= 5
-    ):
-        backtest_light = "🔥"
-
-    elif (
-        win_10d >= 55
-    ):
-        backtest_light = "🟢"
-
-    elif (
-        win_10d >= 45
-    ):
-        backtest_light = "🟡"
-
-    else:
-        backtest_light = "🔴"
-
-    # ====================================
     # return
     # ====================================
 
     return {
 
         "股票": stock_id,
+
         "收盤價": round(latest["close"], 2),
 
         "MA5": round(latest["MA5"], 2),
@@ -859,6 +802,13 @@ def analyze(stock_id):
 
         "熱門分數": round(hot_score, 1),
 
+        "趨勢分": trend_score,
+        "法人分": chip_score,
+        "量能分": volume_score,
+        "KD分": kd_score,
+
+        "分數拆解": score_reason,
+
         "判斷": signal,
 
         "波段燈號": signal_light,
@@ -872,6 +822,16 @@ def analyze(stock_id):
         "假強勢":
         "是" if fake_strength else "否",
 
+        "主流族群": sector,
+        "熱門族群": hot_sector,
+
+        "支撐": support,
+        "壓力": resistance,
+
+        "距離前高%": distance_high,
+
+        "量能狀態": volume_alert,
+
         "主力成本區": cost_zone,
 
         "停損價": stop_loss,
@@ -879,19 +839,7 @@ def analyze(stock_id):
 
         "RR": rr,
 
-        "5日報酬": backtest_return_5d,
-        "10日報酬": backtest_return_10d,
-        "20日報酬": backtest_return_20d,
-
-        "5日勝率": win_5d,
-        "10日勝率": win_10d,
-        "20日勝率": win_20d,
-
-        "最大回撤": max_drawdown,
-
-        "平均持有": avg_hold_days,
-
-        "回測燈號": backtest_light,
+        "排除原因": exclude_reason,
 
         "資料日期": end_date
 
@@ -913,6 +861,15 @@ def plot_kline(df, stock_id):
             low=df["min"],
             close=df["close"],
             name="K線"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["date"],
+            y=df["MA5"],
+            mode="lines",
+            name="MA5"
         )
     )
 
@@ -981,8 +938,7 @@ if start_btn:
         df_result = df_result.sort_values(
             [
                 "分數",
-                "10日勝率",
-                "10日報酬"
+                "熱門分數"
             ],
             ascending=False
         )
@@ -1048,29 +1004,20 @@ if not df_result.empty:
 熱門分數：
 {row['熱門分數']}
 
-10日報酬：
-{row['10日報酬']}%
+主流：
+{row['主流族群']}
 
-10日勝率：
-{row['10日勝率']}%
+距離前高：
+{row['距離前高%']}%
 
-最大回撤：
-{row['最大回撤']}%
+支撐：
+{row['支撐']}
 
-回測：
-{row['回測燈號']}
+壓力：
+{row['壓力']}
 
-主升：
-{row['主升']}
-
-健康回檔：
-{row['健康回檔']}
-
-假強勢：
-{row['假強勢']}
-
-成本區：
-{row['主力成本區']}
+分數拆解：
+{row['分數拆解']}
 """
             )
 
@@ -1098,4 +1045,42 @@ if not df_result.empty:
         st.plotly_chart(
             fig,
             use_container_width=True
+        )
+
+        stock_row = filtered[
+            filtered["股票"]
+            == selected_stock
+        ].iloc[0]
+
+        st.subheader("📌 單股分析")
+
+        st.write(
+            f"""
+股票：
+{stock_row['股票']}
+
+主流族群：
+{stock_row['主流族群']}
+
+熱門族群：
+{stock_row['熱門族群']}
+
+支撐：
+{stock_row['支撐']}
+
+壓力：
+{stock_row['壓力']}
+
+距離前高：
+{stock_row['距離前高%']}%
+
+量能狀態：
+{stock_row['量能狀態']}
+
+分數拆解：
+{stock_row['分數拆解']}
+
+排除原因：
+{stock_row['排除原因']}
+"""
         )
