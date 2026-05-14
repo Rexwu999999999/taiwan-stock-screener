@@ -1,6 +1,6 @@
 # ========================================
 # app.py
-# 台股波段選股儀表板 完整整合版
+# 台股波段選股儀表板 Ultimate 版
 # ========================================
 
 import streamlit as st
@@ -25,7 +25,7 @@ today_str = datetime.today().strftime("%Y-%m-%d %H:%M")
 st.caption(f"系統時間：{today_str}")
 
 # ========================================
-# Session
+# session
 # ========================================
 
 if "df_result" not in st.session_state:
@@ -35,12 +35,12 @@ if "chart_data" not in st.session_state:
     st.session_state["chart_data"] = {}
 
 # ========================================
-# Cache 清除
+# cache clear
 # ========================================
 
 if st.button(
     "🔄 強制更新資料",
-    key="refresh_btn_top"
+    key="refresh_btn"
 ):
 
     st.cache_data.clear()
@@ -82,20 +82,20 @@ start_btn = st.button(
 )
 
 # ========================================
-# Sidebar
+# sidebar
 # ========================================
 
 st.sidebar.header("篩選條件")
 
 min_score = st.sidebar.slider(
-    "最低分數",
+    "最低強度分",
     0,
     15,
     5
 )
 
 min_total_score = st.sidebar.slider(
-    "最低綜合分數",
+    "最低綜合分",
     0,
     20,
     5
@@ -247,7 +247,7 @@ def analyze(stock_id):
     df = df.sort_values("date")
 
     # ====================================
-    # 技術指標
+    # MA / EMA
     # ====================================
 
     df["MA5"] = (
@@ -383,7 +383,7 @@ def analyze(stock_id):
     )
 
     # ====================================
-    # 量能狀態
+    # 量能
     # ====================================
 
     volume_alert = "正常"
@@ -402,20 +402,19 @@ def analyze(stock_id):
 
         "2308": "AI",
         "2376": "AI",
-        "2382": "AI",
         "3017": "AI",
-
-        "3324": "CPO",
 
         "1519": "重電",
         "1503": "重電",
 
+        "4938": "散熱",
+
         "8110": "生技",
 
-        "2454": "半導體",
         "2330": "半導體",
+        "2454": "半導體",
 
-        "4938": "散熱",
+        "3324": "CPO"
     }
 
     sector = sector_map.get(
@@ -427,9 +426,9 @@ def analyze(stock_id):
 
     if sector in [
         "AI",
-        "CPO",
         "重電",
-        "半導體"
+        "半導體",
+        "CPO"
     ]:
         hot_sector = "是"
 
@@ -471,7 +470,7 @@ def analyze(stock_id):
         )
 
     # ====================================
-    # 分數拆解
+    # 強度分
     # ====================================
 
     trend_score = 0
@@ -480,6 +479,7 @@ def analyze(stock_id):
     kd_score = 0
 
     # 趨勢
+
     if latest["close"] > latest["EMA20"]:
         trend_score += 2
 
@@ -490,6 +490,7 @@ def analyze(stock_id):
         trend_score += 1
 
     # 法人
+
     if foreign_trend == "連買":
         chip_score += 3
 
@@ -503,6 +504,7 @@ def analyze(stock_id):
         chip_score += 1
 
     # 量能
+
     if vol_ratio >= 1.2:
         volume_score += 1
 
@@ -510,6 +512,7 @@ def analyze(stock_id):
         volume_score += 2
 
     # KD
+
     if latest["K"] > latest["D"]:
         kd_score += 2
 
@@ -531,103 +534,11 @@ def analyze(stock_id):
     )
 
     # ====================================
-    # 主升 / 健康回檔 / 假強勢
-    # ====================================
-
-    main_uptrend = False
-
-    if (
-        latest["close"] > latest["EMA20"]
-        and latest["EMA20"] > latest["EMA60"]
-        and latest["K"] > latest["D"]
-    ):
-        main_uptrend = True
-
-    healthy_pullback = False
-
-    if (
-        bias_ema20 > -3
-        and latest["close"] > latest["EMA20"]
-        and latest["K"] > 35
-    ):
-        healthy_pullback = True
-
-    fake_strength = False
-
-    if (
-        week_change > 15
-        and latest["K"] > 85
-    ):
-        fake_strength = True
-
-    # ====================================
-    # 排除原因
-    # ====================================
-
-    exclude_reasons = []
-
-    if bias_ma5 > 12:
-        exclude_reasons.append("乖離過大")
-
-    if latest["K"] > 85:
-        exclude_reasons.append("高檔鈍化")
-
-    if foreign_trend == "連賣":
-        exclude_reasons.append("外資連賣")
-
-    if trust_trend == "連賣":
-        exclude_reasons.append("投信連賣")
-
-    if latest["close"] < latest["EMA20"]:
-        exclude_reasons.append("跌破EMA20")
-
-    if vol_ratio < 0.8:
-        exclude_reasons.append("量能不足")
-
-    if week_change > 20:
-        exclude_reasons.append("短線過熱")
-
-    exclude_reason = "正常"
-
-    if len(exclude_reasons) > 0:
-
-        exclude_reason = (
-            "、".join(exclude_reasons)
-        )
-
-    # ====================================
-    # 熱門分數
-    # ====================================
-
-    hot_score = 0
-
-    hot_score += min(
-        max(week_change, 0),
-        20
-    )
-
-    hot_score += min(
-        vol_ratio * 3,
-        10
-    )
-
-    hot_score += min(
-        latest["K"] / 10,
-        10
-    )
-
-    if foreign_trend == "連買":
-        hot_score += 10
-
-    if trust_trend == "連買":
-        hot_score += 8
-
-    # ====================================
     # RR
     # ====================================
 
     stop_loss = round(
-        recent_5["min"].min(),
+        support * 0.98,
         2
     )
 
@@ -652,29 +563,48 @@ def analyze(stock_id):
             2
         )
 
+    # RR 限制
+
+    if rr > 5:
+        rr = 5
+
     # ====================================
-    # 位置分數
+    # 位置分
     # ====================================
 
     position_score = 0
 
-    if distance_high > 10:
+    # 距離前高
+
+    if distance_high > 15:
+        position_score += 3
+
+    elif distance_high > 10:
         position_score += 2
 
     elif distance_high > 5:
         position_score += 1
 
-    if rr >= 2:
+    # RR
+
+    if rr >= 3:
+        position_score += 3
+
+    elif rr >= 2:
         position_score += 2
 
     elif rr >= 1.2:
         position_score += 1
+
+    # 乖離
 
     if abs(bias_ma5) <= 3:
         position_score += 1
 
     if abs(bias_ema20) <= 5:
         position_score += 1
+
+    # 過熱
 
     if latest["K"] > 85:
         position_score -= 2
@@ -692,21 +622,89 @@ def analyze(stock_id):
         position_score -= 1
 
     # ====================================
+    # 排除原因
+    # ====================================
+
+    exclude_reasons = []
+
+    penalty_score = 0
+
+    if foreign_trend == "連賣":
+        exclude_reasons.append("外資連賣")
+        penalty_score -= 5
+
+    if trust_trend == "連賣":
+        exclude_reasons.append("投信連賣")
+        penalty_score -= 4
+
+    if latest["K"] > 85:
+        exclude_reasons.append("高檔鈍化")
+        penalty_score -= 2
+
+    if vol_ratio < 0.8:
+        exclude_reasons.append("量能不足")
+        penalty_score -= 2
+
+    if latest["close"] < latest["EMA20"]:
+        exclude_reasons.append("跌破EMA20")
+        penalty_score -= 5
+
+    if week_change > 20:
+        exclude_reasons.append("短線過熱")
+        penalty_score -= 2
+
+    if bias_ma5 > 12:
+        exclude_reasons.append("乖離過大")
+        penalty_score -= 2
+
+    if rr < 1:
+        exclude_reasons.append("RR過低")
+        penalty_score -= 3
+
+    if distance_high < 3:
+        exclude_reasons.append("壓力太近")
+        penalty_score -= 2
+
+    position_score += penalty_score
+
+    exclude_reason = "正常"
+
+    if len(exclude_reasons) > 0:
+
+        exclude_reason = (
+            "、".join(exclude_reasons)
+        )
+
+    # ====================================
     # 位置評級
     # ====================================
 
     position_grade = "普通"
 
-    if position_score >= 4:
+    if latest["close"] < latest["EMA20"]:
+
+        position_grade = "很差"
+
+    elif (
+        position_score >= 5
+        and score >= 7
+    ):
+
         position_grade = "漂亮"
 
-    elif position_score >= 2:
+    elif (
+        position_score >= 2
+        and score >= 6
+    ):
+
         position_grade = "尚可"
 
     elif position_score <= -2:
+
         position_grade = "很差"
 
-    elif position_score < 2:
+    else:
+
         position_grade = "普通"
 
     position_reason = (
@@ -717,54 +715,160 @@ def analyze(stock_id):
     )
 
     # ====================================
-    # 綜合分數
+    # 綜合分
     # ====================================
 
-    total_score = score + position_score
+    total_score = round(
+        (
+            score * 0.75
+            +
+            max(position_score, 0) * 0.25
+        ),
+        2
+    )
+
+    if rr < 1:
+        total_score -= 3
+
+    if foreign_trend == "連賣":
+        total_score -= 3
+
+    if latest["close"] < latest["EMA20"]:
+        total_score -= 4
+
+    if latest["K"] > 85:
+        total_score -= 2
+
+    if vol_ratio < 0.8:
+        total_score -= 2
 
     # ====================================
-    # 訊號（強度 + 位置）
+    # 交易品質
+    # ====================================
+
+    quality_score = 10
+
+    if rr < 1:
+        quality_score -= 3
+
+    elif rr < 1.5:
+        quality_score -= 1
+
+    if distance_high < 3:
+        quality_score -= 2
+
+    elif distance_high < 5:
+        quality_score -= 1
+
+    if latest["K"] > 85:
+        quality_score -= 2
+
+    if vol_ratio < 0.8:
+        quality_score -= 2
+
+    if foreign_trend == "連賣":
+        quality_score -= 3
+
+    if trust_trend == "連賣":
+        quality_score -= 2
+
+    if latest["close"] < latest["EMA20"]:
+        quality_score -= 4
+
+    quality_score = max(
+        min(quality_score, 10),
+        0
+    )
+
+    quality_grade = "普通"
+
+    if quality_score >= 8:
+        quality_grade = "很好"
+
+    elif quality_score >= 5:
+        quality_grade = "可觀察"
+
+    else:
+        quality_grade = "不值得做"
+
+    # ====================================
+    # 階段
+    # ====================================
+
+    stage = "整理"
+
+    if (
+        latest["EMA20"] > latest["EMA60"]
+        and latest["K"] > latest["D"]
+        and week_change < 8
+    ):
+        stage = "起漲"
+
+    if (
+        latest["close"] > latest["EMA20"]
+        and latest["EMA20"] > latest["EMA60"]
+        and latest["K"] > 60
+    ):
+        stage = "主升"
+
+    if (
+        latest["K"] > 85
+        or week_change > 18
+    ):
+        stage = "過熱"
+
+    if (
+        black_count >= 4
+        and vol_ratio >= 2
+    ):
+        stage = "出貨"
+
+    if latest["close"] < latest["EMA20"]:
+        stage = "轉弱"
+
+    # ====================================
+    # 訊號
     # ====================================
 
     signal = "WAIT"
 
-    # 真正適合進場：強 + 位置好
     if (
         score >= 9
-        and total_score >= 10
-        and healthy_pullback
-        and latest["K"] < 80
-        and week_change < 15
+        and total_score >= 8
         and rr >= 1.2
         and distance_high > 5
         and position_score >= 2
+        and foreign_trend != "連賣"
+        and latest["K"] < 80
     ):
+
         signal = "YES"
 
-    # 強但位置不好
     elif (
-        score >= 9
+        score >= 8
         and (
             latest["K"] >= 80
             or week_change >= 15
             or rr < 1.2
             or distance_high <= 5
-            or position_score < 2
         )
     ):
+
         signal = "HOT"
 
     elif (
-        score >= 7
+        score >= 6
         and position_score >= 0
     ):
+
         signal = "EARLY"
 
     elif latest["close"] < latest["EMA20"]:
+
         signal = "NO"
 
     # ====================================
-    # 波段燈號
+    # 燈號
     # ====================================
 
     signal_light = "⚪"
@@ -840,7 +944,10 @@ def analyze(stock_id):
         "位置評級": position_grade,
         "位置說明": position_reason,
 
-        "熱門分數": round(hot_score, 1),
+        "交易品質分": quality_score,
+        "交易品質": quality_grade,
+
+        "熱門分數": round(hot_score if 'hot_score' in locals() else 0, 1),
 
         "趨勢分": trend_score,
         "法人分": chip_score,
@@ -852,15 +959,6 @@ def analyze(stock_id):
         "判斷": signal,
 
         "波段燈號": signal_light,
-
-        "主升":
-        "是" if main_uptrend else "否",
-
-        "健康回檔":
-        "是" if healthy_pullback else "否",
-
-        "假強勢":
-        "是" if fake_strength else "否",
 
         "主流族群": sector,
         "熱門族群": hot_sector,
@@ -880,6 +978,8 @@ def analyze(stock_id):
         "RR": rr,
 
         "排除原因": exclude_reason,
+
+        "階段": stage,
 
         "資料日期": end_date
 
@@ -980,7 +1080,7 @@ if start_btn:
                 "綜合分",
                 "強度分",
                 "位置分",
-                "熱門分數"
+                "交易品質分"
             ],
             ascending=False
         )
@@ -1054,6 +1154,15 @@ if not df_result.empty:
 位置：
 {row['位置評級']}
 
+交易品質：
+{row['交易品質']}
+
+交易品質分：
+{row['交易品質分']}
+
+階段：
+{row['階段']}
+
 主流：
 {row['主流族群']}
 
@@ -1124,6 +1233,9 @@ RR：
 熱門族群：
 {stock_row['熱門族群']}
 
+階段：
+{stock_row['階段']}
+
 支撐：
 {stock_row['支撐']}
 
@@ -1147,6 +1259,12 @@ RR：
 
 位置評級：
 {stock_row['位置評級']}
+
+交易品質：
+{stock_row['交易品質']}
+
+交易品質分：
+{stock_row['交易品質分']}
 
 分數拆解：
 {stock_row['分數拆解']}
