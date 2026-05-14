@@ -4,7 +4,10 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 
-FINMIND_TOKEN = os.getenv("FINMIND_TOKEN", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE")
+FINMIND_TOKEN = os.getenv("FINMIND_TOKEN", "").strip()
+
+if not FINMIND_TOKEN:
+    FINMIND_TOKEN = "PASTE_YOUR_FINMIND_TOKEN_HERE"
 
 headers = {
     "Authorization": f"Bearer {FINMIND_TOKEN}"
@@ -26,13 +29,41 @@ def api_get(params):
     return pd.DataFrame(data)
 
 
+def get_valid_end_date():
+    test_stock = "2330"
+
+    for i in range(10):
+        d = (
+            datetime.today()
+            - timedelta(days=i)
+        ).strftime("%Y-%m-%d")
+
+        df = api_get({
+            "dataset": "TaiwanStockPrice",
+            "data_id": test_stock,
+            "start_date": d,
+            "end_date": d
+        })
+
+        if not df.empty:
+            return d
+
+    return datetime.today().strftime("%Y-%m-%d")
+
+
 def get_stock_list():
     df = api_get({
         "dataset": "TaiwanStockInfo"
     })
 
     if df.empty:
-        return pd.DataFrame(columns=["stock_id", "stock_name", "industry_category"])
+        return pd.DataFrame(
+            columns=[
+                "stock_id",
+                "stock_name",
+                "industry_category"
+            ]
+        )
 
     df["stock_id"] = df["stock_id"].astype(str)
 
@@ -58,46 +89,23 @@ def get_stock_list():
 
     for kw in exclude_keywords:
         df = df[
-            ~df["stock_name"].astype(str).str.contains(kw, na=False)
+            ~df["stock_name"].astype(str).str.contains(
+                kw,
+                na=False
+            )
         ]
 
-    df = df.drop_duplicates(subset=["stock_id"])
+    df = df.drop_duplicates(
+        subset=["stock_id"]
+    )
 
-    return df[["stock_id", "stock_name", "industry_category"]]
-
-
-def get_valid_end_date():
-    for i in range(10):
-        d = (
-            datetime.today()
-            - timedelta(days=i)
-        ).strftime("%Y-%m-%d")
-
-        df = api_get({
-            "dataset": "TaiwanStockPrice",
-            "start_date": d,
-            "end_date": d
-        })
-
-        if not df.empty:
-            return d
-
-    return datetime.today().strftime("%Y-%m-%d")
-
-
-def get_price_data(start_date, end_date):
-    df = api_get({
-        "dataset": "TaiwanStockPrice",
-        "start_date": start_date,
-        "end_date": end_date
-    })
-
-    if df.empty:
-        return pd.DataFrame()
-
-    df["stock_id"] = df["stock_id"].astype(str)
-
-    return df
+    return df[
+        [
+            "stock_id",
+            "stock_name",
+            "industry_category"
+        ]
+    ]
 
 
 def get_institutional_data(end_date):
@@ -113,36 +121,6 @@ def get_institutional_data(end_date):
     df["stock_id"] = df["stock_id"].astype(str)
 
     return df
-
-
-def get_theme(stock_id, industry):
-    theme_map = {
-        "2308": "AI",
-        "2376": "AI",
-        "2327": "AI",
-        "2382": "AI",
-        "3017": "AI",
-        "3231": "AI",
-        "6669": "AI",
-
-        "1503": "重電",
-        "1519": "重電",
-        "1504": "重電",
-
-        "4938": "散熱",
-        "3014": "散熱",
-
-        "8110": "生技",
-
-        "2330": "半導體",
-        "2454": "半導體",
-        "2303": "半導體",
-
-        "3324": "CPO",
-        "4908": "CPO",
-    }
-
-    return theme_map.get(stock_id, industry if industry else "其他")
 
 
 def calc_institutional(stock_id, inst_df):
@@ -182,16 +160,70 @@ def calc_institutional(stock_id, inst_df):
     return foreign_total, trust_total
 
 
-def analyze_stock(stock_id, stock_name, industry, df, inst_df, end_date):
+def get_theme(stock_id, industry):
+    theme_map = {
+        "2308": "AI",
+        "2376": "AI",
+        "2327": "AI",
+        "2382": "AI",
+        "3017": "AI",
+        "3231": "AI",
+        "6669": "AI",
+
+        "1503": "重電",
+        "1504": "重電",
+        "1519": "重電",
+
+        "4938": "散熱",
+        "3014": "散熱",
+
+        "8110": "生技",
+
+        "2330": "半導體",
+        "2454": "半導體",
+        "2303": "半導體",
+
+        "3324": "CPO",
+        "4908": "CPO",
+    }
+
+    return theme_map.get(
+        stock_id,
+        industry if industry else "其他"
+    )
+
+
+def analyze_stock(
+    stock_id,
+    stock_name,
+    industry,
+    df,
+    inst_df,
+    end_date
+):
+    if df.empty:
+        return None
+
     df = df.sort_values("date").copy()
 
     if len(df) < 60:
         return None
 
-    for col in ["open", "max", "min", "close", "Trading_Volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in [
+        "open",
+        "max",
+        "min",
+        "close",
+        "Trading_Volume"
+    ]:
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
 
-    df = df.dropna(subset=["close"])
+    df = df.dropna(
+        subset=["close", "Trading_Volume"]
+    )
 
     if len(df) < 60:
         return None
@@ -246,8 +278,15 @@ def analyze_stock(stock_id, stock_name, industry, df, inst_df, end_date):
     high_60 = df["close"].tail(60).max()
     low_20 = df["close"].tail(20).min()
 
-    resistance = round(high_60, 2)
-    support = round(low_20, 2)
+    resistance = round(
+        high_60,
+        2
+    )
+
+    support = round(
+        low_20,
+        2
+    )
 
     distance_high = round(
         (
@@ -427,20 +466,11 @@ def main():
         - timedelta(days=180)
     ).strftime("%Y-%m-%d")
 
-    print("資料日期", end_date)
+    print("DATA_DATE", end_date)
 
     stock_info = get_stock_list()
 
-    print("股票數量", len(stock_info))
-
-    price_df = get_price_data(
-        start_date,
-        end_date
-    )
-
-    if price_df.empty:
-        print("股價資料為空")
-        return
+    print("STOCK_COUNT", len(stock_info))
 
     inst_df = get_institutional_data(
         end_date
@@ -448,21 +478,23 @@ def main():
 
     all_data = []
 
-    info_map = stock_info.set_index("stock_id").to_dict("index")
-
-    grouped = price_df.groupby("stock_id")
-
-    for stock_id, df_stock in grouped:
-        if stock_id not in info_map:
-            continue
-
-        info = info_map[stock_id]
+    for idx, row in stock_info.iterrows():
+        stock_id = row["stock_id"]
+        stock_name = row["stock_name"]
+        industry = row["industry_category"]
 
         try:
+            df_stock = api_get({
+                "dataset": "TaiwanStockPrice",
+                "data_id": stock_id,
+                "start_date": start_date,
+                "end_date": end_date
+            })
+
             result = analyze_stock(
                 stock_id=stock_id,
-                stock_name=info.get("stock_name", ""),
-                industry=info.get("industry_category", "其他"),
+                stock_name=stock_name,
+                industry=industry,
                 df=df_stock,
                 inst_df=inst_df,
                 end_date=end_date
@@ -471,13 +503,18 @@ def main():
             if result is not None:
                 all_data.append(result)
 
-        except:
+            if idx % 50 == 0:
+                print("PROGRESS", idx)
+
+            time.sleep(0.05)
+
+        except Exception:
             pass
 
     final_df = pd.DataFrame(all_data)
 
     if final_df.empty:
-        print("沒有分析結果")
+        print("NO_RESULT")
         return
 
     final_df = final_df.sort_values(
@@ -500,8 +537,8 @@ def main():
         encoding="utf-8-sig"
     )
 
-    print("完成")
-    print("分析股票數", len(final_df))
+    print("DONE")
+    print("RESULT_COUNT", len(final_df))
 
 
 if __name__ == "__main__":
