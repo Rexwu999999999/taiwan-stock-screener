@@ -21,15 +21,30 @@ today_str = datetime.today().strftime("%Y-%m-%d %H:%M")
 st.caption(f"系統查詢時間：{today_str}")
 
 # ========================================
+# Session 初始化
+# ========================================
+
+if "df_result" not in st.session_state:
+    st.session_state["df_result"] = pd.DataFrame()
+
+if "chart_data" not in st.session_state:
+    st.session_state["chart_data"] = {}
+
+# ========================================
 # Cache 清除
 # ========================================
 
 if st.button("🔄 強制更新資料"):
+
     st.cache_data.clear()
-    st.success("Cache 已清除，下次分析會重新抓資料")
+
+    st.session_state["df_result"] = pd.DataFrame()
+    st.session_state["chart_data"] = {}
+
+    st.success("Cache 已清除")
 
 # ========================================
-# Secrets
+# API
 # ========================================
 
 FINMIND_TOKEN = st.secrets["FINMIND_TOKEN"]
@@ -57,18 +72,42 @@ watchlist = re.findall(r"\d{4}", stock_text)
 start_btn = st.button("🚀 開始分析")
 
 # ========================================
-# 側邊欄篩選
+# Sidebar
 # ========================================
 
 st.sidebar.header("篩選條件")
 
-min_score = st.sidebar.slider("最低分數", 0, 15, 0)
-max_week_gain = st.sidebar.slider("本週漲幅上限 %", 0, 50, 30)
-max_ma5_bias = st.sidebar.slider("MA5 乖離上限 %", 0, 30, 15)
-min_vol_ratio = st.sidebar.slider("最低量比", 0.0, 5.0, 0.0, 0.1)
+min_score = st.sidebar.slider(
+    "最低分數",
+    0,
+    15,
+    0
+)
+
+max_week_gain = st.sidebar.slider(
+    "本週漲幅上限 %",
+    0,
+    50,
+    30
+)
+
+max_ma5_bias = st.sidebar.slider(
+    "MA5 乖離上限 %",
+    0,
+    30,
+    15
+)
+
+min_vol_ratio = st.sidebar.slider(
+    "最低量比",
+    0.0,
+    5.0,
+    0.0,
+    0.1
+)
 
 # ========================================
-# 找最近交易日
+# 最近交易日
 # ========================================
 
 @st.cache_data(ttl=3600)
@@ -77,7 +116,8 @@ def get_valid_date(stock_id):
     for i in range(10):
 
         d = (
-            datetime.today() - timedelta(days=i)
+            datetime.today()
+            - timedelta(days=i)
         ).strftime("%Y-%m-%d")
 
         params = {
@@ -160,7 +200,7 @@ def investor_trend(inst, investor_name):
     return trend
 
 # ========================================
-# 單股分析
+# 分析
 # ========================================
 
 @st.cache_data(ttl=3600)
@@ -177,7 +217,7 @@ def analyze(stock_id):
     ).strftime("%Y-%m-%d")
 
     # ====================================
-    # 股價資料
+    # 股價
     # ====================================
 
     params = {
@@ -193,7 +233,9 @@ def analyze(stock_id):
         params=params
     )
 
-    df = pd.DataFrame(r.json().get("data", []))
+    df = pd.DataFrame(
+        r.json().get("data", [])
+    )
 
     if df.empty or len(df) < 60:
         return None, None
@@ -206,9 +248,24 @@ def analyze(stock_id):
 
     df["MA5"] = df["close"].rolling(5).mean()
     df["MA10"] = df["close"].rolling(10).mean()
-    df["EMA20"] = df["close"].ewm(span=20).mean()
-    df["EMA60"] = df["close"].ewm(span=60).mean()
-    df["VOL_MA20"] = df["Trading_Volume"].rolling(20).mean()
+
+    df["EMA20"] = (
+        df["close"]
+        .ewm(span=20)
+        .mean()
+    )
+
+    df["EMA60"] = (
+        df["close"]
+        .ewm(span=60)
+        .mean()
+    )
+
+    df["VOL_MA20"] = (
+        df["Trading_Volume"]
+        .rolling(20)
+        .mean()
+    )
 
     # ====================================
     # KDJ
@@ -244,10 +301,13 @@ def analyze(stock_id):
     latest = df.iloc[-1]
 
     # ====================================
-    # 基礎數值
+    # 數值
     # ====================================
 
-    vol_ratio = latest["Trading_Volume"] / latest["VOL_MA20"]
+    vol_ratio = (
+        latest["Trading_Volume"]
+        / latest["VOL_MA20"]
+    )
 
     week_ago_close = df.iloc[-6]["close"]
 
@@ -269,15 +329,17 @@ def analyze(stock_id):
     recent_5 = df.tail(5)
 
     red_count = (
-        recent_5["close"] > recent_5["open"]
+        recent_5["close"]
+        > recent_5["open"]
     ).sum()
 
     black_count = (
-        recent_5["close"] < recent_5["open"]
+        recent_5["close"]
+        < recent_5["open"]
     ).sum()
 
     # ====================================
-    # 法人資料
+    # 法人
     # ====================================
 
     params = {
@@ -297,6 +359,7 @@ def analyze(stock_id):
 
     foreign_week = 0
     trust_week = 0
+
     foreign_month = 0
     trust_month = 0
 
@@ -306,7 +369,10 @@ def analyze(stock_id):
     if not inst.empty:
 
         inst = inst.sort_values("date")
-        inst["date"] = pd.to_datetime(inst["date"])
+
+        inst["date"] = pd.to_datetime(
+            inst["date"]
+        )
 
         week_inst = inst[
             inst["date"]
@@ -316,8 +382,13 @@ def analyze(stock_id):
             )
         ]
 
-        latest_month = pd.to_datetime(end_date).month
-        latest_year = pd.to_datetime(end_date).year
+        latest_month = pd.to_datetime(
+            end_date
+        ).month
+
+        latest_year = pd.to_datetime(
+            end_date
+        ).year
 
         month_inst = inst[
             (inst["date"].dt.month == latest_month)
@@ -464,7 +535,7 @@ def analyze(stock_id):
         pullback_score += 1
 
     # ====================================
-    # FOMO風險
+    # FOMO
     # ====================================
 
     fomo = 0
@@ -522,7 +593,7 @@ def analyze(stock_id):
         stage = "轉弱"
 
     # ====================================
-    # 型態分類
+    # 型態
     # ====================================
 
     setup = "整理"
@@ -543,7 +614,7 @@ def analyze(stock_id):
         setup = "轉弱"
 
     # ====================================
-    # 訊號判斷
+    # 訊號
     # ====================================
 
     signal = "WAIT"
@@ -620,10 +691,10 @@ def analyze(stock_id):
     action = "等待"
 
     if signal == "YES":
-        action = "最佳波段區，可觀察進場"
+        action = "最佳波段區"
 
     elif signal == "HOT":
-        action = "主流強勢但避免追高"
+        action = "主流強勢避免追高"
 
     elif signal == "EARLY":
         action = "剛轉強觀察"
@@ -632,38 +703,59 @@ def analyze(stock_id):
         action = "弱勢避免"
 
     # ====================================
-    # 入場區間
+    # 入場區
     # ====================================
 
     entry_zone = "等待"
 
     if signal == "YES":
 
-        lower = round(latest["EMA20"] * 0.99, 2)
-        upper = round(latest["EMA20"] * 1.02, 2)
+        lower = round(
+            latest["EMA20"] * 0.99,
+            2
+        )
+
+        upper = round(
+            latest["EMA20"] * 1.02,
+            2
+        )
 
         entry_zone = f"{lower} ~ {upper}"
 
     elif signal == "EARLY":
 
-        lower = round(latest["EMA20"] * 0.98, 2)
-        upper = round(latest["EMA20"] * 1.01, 2)
+        lower = round(
+            latest["EMA20"] * 0.98,
+            2
+        )
+
+        upper = round(
+            latest["EMA20"] * 1.01,
+            2
+        )
 
         entry_zone = f"{lower} ~ {upper}"
 
     elif signal == "HOT":
 
-        lower = round(latest["MA5"] * 0.97, 2)
-        upper = round(latest["EMA20"] * 1.00, 2)
+        lower = round(
+            latest["MA5"] * 0.97,
+            2
+        )
+
+        upper = round(
+            latest["EMA20"],
+            2
+        )
 
         entry_zone = f"等回檔 {lower} ~ {upper}"
 
     elif signal == "NO":
 
-        entry_zone = "不建議進場"
+        entry_zone = "不建議"
 
     # ====================================
-    # 停損價 / 目標價 / RR
+    # RR
     # ====================================
 
     stop_loss = round(
@@ -671,22 +763,35 @@ def analyze(stock_id):
         2
     )
 
-    recent_high = df.tail(60)["max"].max()
+    recent_high = (
+        df.tail(60)["max"]
+        .max()
+    )
 
     target_price = round(
         recent_high,
         2
     )
 
-    risk_amt = latest["close"] - stop_loss
-    reward_amt = target_price - latest["close"]
+    risk_amt = (
+        latest["close"]
+        - stop_loss
+    )
+
+    reward_amt = (
+        target_price
+        - latest["close"]
+    )
 
     rr = 0
 
     if risk_amt > 0:
-        rr = round(reward_amt / risk_amt, 2)
+        rr = round(
+            reward_amt / risk_amt,
+            2
+        )
 
-    rr_level = "低"
+    rr_level = "差"
 
     if rr >= 3:
         rr_level = "極佳"
@@ -697,9 +802,6 @@ def analyze(stock_id):
     elif rr >= 1:
         rr_level = "普通"
 
-    else:
-        rr_level = "差"
-
     # ====================================
     # 視覺化
     # ====================================
@@ -709,16 +811,30 @@ def analyze(stock_id):
         min(score, 10)
     )
 
-    score_bar = "🟩" * score_clamped
-    score_bar += "⬛" * (10 - score_clamped)
+    score_bar = (
+        "🟩" * score_clamped
+    ) + (
+        "⬛" * (10 - score_clamped)
+    )
 
     heat = 0
-    heat += min(max(week_change, 0), 10)
-    heat += min(max(bias_ma5, 0), 10)
+
+    heat += min(
+        max(week_change, 0),
+        10
+    )
+
+    heat += min(
+        max(bias_ma5, 0),
+        10
+    )
 
     heat_score = int(heat)
 
-    heat_bar = "🔥" * min(heat_score // 3, 5)
+    heat_bar = (
+        "🔥"
+        * min(heat_score // 3, 5)
+    )
 
     risk_icon = "🟢"
 
@@ -727,17 +843,6 @@ def analyze(stock_id):
 
     elif risk == "高":
         risk_icon = "🔴"
-
-    entry_visual = "⚪"
-
-    if signal == "YES":
-        entry_visual = "🟢"
-
-    elif signal == "HOT":
-        entry_visual = "🟠"
-
-    elif signal == "NO":
-        entry_visual = "🔴"
 
     stage_color = "⚪"
 
@@ -782,7 +887,6 @@ def analyze(stock_id):
         "波段燈號": signal_light,
         "判斷": signal,
         "建議": action,
-        "進場": entry_visual,
         "入場區間": entry_zone,
         "停損價": stop_loss,
         "目標價": target_price,
@@ -881,16 +985,22 @@ if start_btn:
             st.error(f"{stock_id} 錯誤：{e}")
 
         progress.progress(
-            (idx + 1) / len(watchlist)
+            (idx + 1)
+            / len(watchlist)
         )
 
     df_result = pd.DataFrame(results)
 
     if not df_result.empty:
 
-        latest_trade_date = df_result["資料日期"].max()
+        latest_trade_date = (
+            df_result["資料日期"]
+            .max()
+        )
 
-        st.success(f"最新交易日：{latest_trade_date}")
+        st.success(
+            f"最新交易日：{latest_trade_date}"
+        )
 
         order = {
             "YES": 0,
@@ -900,7 +1010,10 @@ if start_btn:
             "NO": 4
         }
 
-        df_result["排序"] = df_result["判斷"].map(order)
+        df_result["排序"] = (
+            df_result["判斷"]
+            .map(order)
+        )
 
         # ====================================
         # 排除原因
@@ -925,27 +1038,45 @@ if start_btn:
                 reasons.append("量比不足")
 
             if len(reasons) == 0:
-                df_result.at[idx, "排除原因"] = "通過"
+
+                df_result.at[
+                    idx,
+                    "排除原因"
+                ] = "通過"
 
             else:
-                df_result.at[idx, "排除原因"] = "、".join(reasons)
+
+                df_result.at[
+                    idx,
+                    "排除原因"
+                ] = "、".join(reasons)
 
         df_result = df_result.sort_values(
             ["排序", "分數", "回檔分數", "量比"],
-            ascending=[True, False, False, False]
+            ascending=[
+                True,
+                False,
+                False,
+                False
+            ]
         )
 
-        st.session_state["df_result"] = df_result
-        st.session_state["chart_data"] = chart_data
+        st.session_state[
+            "df_result"
+        ] = df_result
+
+        st.session_state[
+            "chart_data"
+        ] = chart_data
 
 # ========================================
-# 顯示資料
+# 顯示
 # ========================================
 
-if "df_result" in st.session_state:
+df_result = st.session_state["df_result"]
+chart_data = st.session_state["chart_data"]
 
-    df_result = st.session_state["df_result"]
-    chart_data = st.session_state["chart_data"]
+if not df_result.empty:
 
     filtered = df_result[
         (df_result["分數"] >= min_score)
@@ -957,196 +1088,40 @@ if "df_result" in st.session_state:
         (df_result["量比"] >= min_vol_ratio)
     ]
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    c1.metric("股票數", len(df_result))
-    c2.metric("YES", len(df_result[df_result["判斷"] == "YES"]))
-    c3.metric("HOT", len(df_result[df_result["判斷"] == "HOT"]))
-    c4.metric("EARLY", len(df_result[df_result["判斷"] == "EARLY"]))
-    c5.metric("NO", len(df_result[df_result["判斷"] == "NO"]))
-
-    st.divider()
-
-    # ====================================
-    # 表格顏色
-    # ====================================
-
-    def row_color(row):
-
-        if row["判斷"] == "YES":
-            return ["background-color: #112b1d"] * len(row)
-
-        elif row["判斷"] == "HOT":
-            return ["background-color: #332211"] * len(row)
-
-        elif row["判斷"] == "EARLY":
-            return ["background-color: #1b2233"] * len(row)
-
-        elif row["判斷"] == "NO":
-            return ["background-color: #1a1a1a"] * len(row)
-
-        return [""] * len(row)
-
-    styled_df = (
-        filtered
-        .drop(columns=["排序"])
-        .style
-        .apply(row_color, axis=1)
-    )
-
     st.subheader("📊 波段分析結果")
 
     st.dataframe(
-        styled_df,
+        filtered.drop(columns=["排序"]),
         use_container_width=True,
         height=700
     )
 
     # ====================================
-    # 被排除股票
+    # 被排除
     # ====================================
 
-    excluded = df_result[
-        df_result["排除原因"] != "通過"
-    ]
+    if "排除原因" in df_result.columns:
 
-    if not excluded.empty:
+        excluded = df_result[
+            df_result["排除原因"] != "通過"
+        ]
 
-        st.divider()
+        if not excluded.empty:
 
-        st.subheader("🚫 被篩選排除")
+            st.divider()
 
-        st.dataframe(
-            excluded[
-                [
-                    "股票",
-                    "分數",
-                    "本週%",
-                    "MA5乖離%",
-                    "量比",
-                    "排除原因"
-                ]
-            ],
-            use_container_width=True
-        )
+            st.subheader("🚫 被篩選排除")
 
-    # ====================================
-    # TOP5 真強勢股
-    # ====================================
-
-    st.divider()
-
-    st.subheader("🏆 TOP5 真強勢股")
-
-    top5 = (
-        filtered
-        .sort_values(
-            ["分數", "回檔分數", "量比"],
-            ascending=[False, False, False]
-        )
-        .head(5)
-    )
-
-    cols = st.columns(5)
-
-    for idx, (_, row) in enumerate(top5.iterrows()):
-
-        with cols[idx]:
-
-            st.markdown(
-                f"""
-### {row['股票']} {row['波段燈號']}
-
-**{row['判斷']}**
-
-收盤：{row['收盤價']}
-
-分數：{row['分數']}
-
-{row['分數條']}
-
-熱度：{row['熱度']}
-
-風險：{row['風險視覺']} {row['風險']}
-
-主力：{row['主力方向']}
-
-外資：{row['外資趨勢']}
-
-投信：{row['投信趨勢']}
-
-入場：  
-{row['入場區間']}
-
-RR：{row['RR']}（{row['RR評級']}）
-"""
+            st.dataframe(
+                excluded[
+                    [
+                        "股票",
+                        "分數",
+                        "本週%",
+                        "MA5乖離%",
+                        "量比",
+                        "排除原因"
+                    ]
+                ],
+                use_container_width=True
             )
-
-    # ====================================
-    # K線圖
-    # ====================================
-
-    st.divider()
-
-    st.subheader("📈 K線圖")
-
-    selected_stock = st.selectbox(
-        "選擇股票",
-        filtered["股票"].tolist()
-    )
-
-    if selected_stock in chart_data:
-
-        fig = plot_kline(
-            chart_data[selected_stock],
-            selected_stock
-        )
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
-
-        stock_row = df_result[
-            df_result["股票"] == selected_stock
-        ].iloc[0]
-
-        st.subheader("📌 單股重點")
-
-        st.write(
-            f"""
-股票：{stock_row["股票"]}
-
-波段燈號：{stock_row["波段燈號"]}
-
-判斷：{stock_row["判斷"]}
-
-型態：{stock_row["型態"]}
-
-波段階段：{stock_row["階段燈號"]} {stock_row["波段階段"]}
-
-主力方向：{stock_row["主力方向"]}
-
-外資趨勢：{stock_row["外資趨勢"]}
-
-投信趨勢：{stock_row["投信趨勢"]}
-
-分數：{stock_row["分數"]}
-
-分數條：{stock_row["分數條"]}
-
-入場區間：{stock_row["入場區間"]}
-
-停損價：{stock_row["停損價"]}
-
-目標價：{stock_row["目標價"]}
-
-RR：{stock_row["RR"]}（{stock_row["RR評級"]}）
-
-FOMO風險：{stock_row["FOMO風險"]}
-
-風險：{stock_row["風險視覺"]} {stock_row["風險"]}
-
-建議：{stock_row["建議"]}
-"""
-        )
