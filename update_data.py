@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import time
 import os
 
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
+FINMIND_TOKEN = "你的token"
 
 headers = {
     "Authorization": f"Bearer {FINMIND_TOKEN}"
@@ -24,10 +24,12 @@ watchlist = [
     "4938",
     "2449",
     "2421",
+
 ]
 
 if not os.path.exists("cache"):
     os.makedirs("cache")
+
 
 def get_valid_date(stock_id):
 
@@ -57,6 +59,75 @@ def get_valid_date(stock_id):
             return d
 
     return None
+
+
+def get_institutional_days(stock_id):
+
+    try:
+
+        end_date = datetime.today().strftime("%Y-%m-%d")
+
+        start_date = (
+            datetime.today()
+            - timedelta(days=30)
+        ).strftime("%Y-%m-%d")
+
+        params = {
+            "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+            "data_id": stock_id,
+            "start_date": start_date,
+            "end_date": end_date
+        }
+
+        r = requests.get(
+            url,
+            headers=headers,
+            params=params
+        )
+
+        data = r.json().get("data", [])
+
+        if len(data) == 0:
+            return 0, 0
+
+        df_ins = pd.DataFrame(data)
+
+        foreign = df_ins[
+            df_ins["name"] == "Foreign_Investor"
+        ]
+
+        invest = df_ins[
+            df_ins["name"] == "Investment_Trust"
+        ]
+
+        foreign_days = 0
+
+        for v in reversed(
+            foreign["buy_sell"].tolist()
+        ):
+
+            if v > 0:
+                foreign_days += 1
+            else:
+                break
+
+        invest_days = 0
+
+        for v in reversed(
+            invest["buy_sell"].tolist()
+        ):
+
+            if v > 0:
+                invest_days += 1
+            else:
+                break
+
+        return foreign_days, invest_days
+
+    except:
+
+        return 0, 0
+
 
 all_data = []
 
@@ -110,6 +181,22 @@ for stock_id in watchlist:
             .mean()
         )
 
+        foreign_days, invest_days = get_institutional_days(stock_id)
+
+        ai_score = 0
+
+        if latest["close"] > df.iloc[-1]["MA5"]:
+            ai_score += 2
+
+        if latest["close"] > df.iloc[-1]["EMA20"]:
+            ai_score += 3
+
+        if foreign_days >= 3:
+            ai_score += 3
+
+        if invest_days >= 3:
+            ai_score += 2
+
         result = {
 
             "股票": stock_id,
@@ -127,6 +214,15 @@ for stock_id in watchlist:
 
             "成交量":
             int(latest["Trading_Volume"]),
+
+            "外資連買":
+            foreign_days,
+
+            "投信連買":
+            invest_days,
+
+            "AI分數":
+            ai_score,
         }
 
         all_data.append(result)
@@ -140,6 +236,11 @@ for stock_id in watchlist:
         print(stock_id, e)
 
 final_df = pd.DataFrame(all_data)
+
+final_df = final_df.sort_values(
+    by="AI分數",
+    ascending=False
+)
 
 final_df.to_csv(
     "cache/latest.csv",
