@@ -68,13 +68,19 @@ def get_stock_list():
                 "industry_category"
             ]
         )
+df["stock_id"] = (
+    df["stock_id"]
+    .astype(str)
+    .str.replace(".0", "", regex=False)
+)
 
-    df["stock_id"] = df["stock_id"].astype(str)
+df = df[
+    df["stock_id"].str.len() == 4
+].copy()
 
-    df = df[
-        df["stock_id"].str.match(r"^\d{4}$")
-    ].copy()
-
+df = df[
+    df["stock_id"].str.isnumeric()
+].copy()
     if "stock_name" not in df.columns:
         df["stock_name"] = ""
 
