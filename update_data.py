@@ -124,9 +124,7 @@ def get_institutional_days(stock_id):
 
         return foreign_days, invest_days
 
-    except Exception as e:
-
-        print(stock_id, e)
+    except:
 
         return 0, 0
 
@@ -137,7 +135,7 @@ for stock_id in watchlist:
 
     try:
 
-        print(f"處理 {stock_id}")
+        print(stock_id)
 
         end_date = get_valid_date(stock_id)
 
@@ -185,11 +183,20 @@ for stock_id in watchlist:
             .mean()
         )
 
-        ma5 = round(df.iloc[-1]["MA5"], 2)
+        ma5 = round(
+            df.iloc[-1]["MA5"],
+            2
+        )
 
-        ema20 = round(df.iloc[-1]["EMA20"], 2)
+        ema20 = round(
+            df.iloc[-1]["EMA20"],
+            2
+        )
 
-        close_price = round(latest["close"], 2)
+        close_price = round(
+            latest["close"],
+            2
+        )
 
         foreign_days, invest_days = get_institutional_days(stock_id)
 
@@ -234,13 +241,13 @@ for stock_id in watchlist:
 
         all_data.append(result)
 
-        print(f"{stock_id} 完成")
+        print(stock_id, "完成")
 
         time.sleep(0.5)
 
-    except Exception as e:
+    except:
 
-        print(stock_id, e)
+        print(stock_id, "error")
 
 final_df = pd.DataFrame(all_data)
 
