@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 import re
 import plotly.graph_objects as go
@@ -35,13 +34,10 @@ if "chart_data" not in st.session_state:
 # ========================================
 
 if st.button("🔄 強制更新資料"):
-
     st.cache_data.clear()
-
     st.session_state["df_result"] = pd.DataFrame()
     st.session_state["chart_data"] = {}
-
-    st.success("Cache 已清除")
+    st.success("Cache 已清除，請重新按開始分析")
 
 # ========================================
 # API
@@ -77,34 +73,10 @@ start_btn = st.button("🚀 開始分析")
 
 st.sidebar.header("篩選條件")
 
-min_score = st.sidebar.slider(
-    "最低分數",
-    0,
-    15,
-    0
-)
-
-max_week_gain = st.sidebar.slider(
-    "本週漲幅上限 %",
-    0,
-    50,
-    30
-)
-
-max_ma5_bias = st.sidebar.slider(
-    "MA5 乖離上限 %",
-    0,
-    30,
-    15
-)
-
-min_vol_ratio = st.sidebar.slider(
-    "最低量比",
-    0.0,
-    5.0,
-    0.0,
-    0.1
-)
+min_score = st.sidebar.slider("最低分數", 0, 15, 0)
+max_week_gain = st.sidebar.slider("本週漲幅上限 %", 0, 50, 30)
+max_ma5_bias = st.sidebar.slider("MA5 乖離上限 %", 0, 30, 15)
+min_vol_ratio = st.sidebar.slider("最低量比", 0.0, 5.0, 0.0, 0.1)
 
 # ========================================
 # 最近交易日
@@ -359,7 +331,6 @@ def analyze(stock_id):
 
     foreign_week = 0
     trust_week = 0
-
     foreign_month = 0
     trust_month = 0
 
@@ -535,6 +506,24 @@ def analyze(stock_id):
         pullback_score += 1
 
     # ====================================
+    # 追高風險
+    # ====================================
+
+    chase_risk = 0
+
+    if week_change > 10:
+        chase_risk += 2
+
+    if latest["K"] > 80:
+        chase_risk += 2
+
+    if bias_ma5 > 8:
+        chase_risk += 2
+
+    if vol_ratio > 3:
+        chase_risk += 2
+
+    # ====================================
     # FOMO
     # ====================================
 
@@ -559,6 +548,37 @@ def analyze(stock_id):
 
     elif fomo >= 2:
         risk = "高"
+
+    # ====================================
+    # 主升段 / 健康回檔 / 假強勢
+    # ====================================
+
+    main_uptrend = False
+
+    if (
+        latest["close"] > latest["EMA20"]
+        and latest["EMA20"] > latest["EMA60"]
+        and latest["K"] > latest["D"]
+    ):
+        main_uptrend = True
+
+    healthy_pullback = False
+
+    if (
+        bias_ema20 > -3
+        and latest["close"] > latest["EMA20"]
+        and latest["K"] > 35
+    ):
+        healthy_pullback = True
+
+    fake_strength = False
+
+    if (
+        week_change > 15
+        and latest["K"] > 85
+        and foreign_trend in ["連買", "偏多"]
+    ):
+        fake_strength = True
 
     # ====================================
     # 波段階段
@@ -685,22 +705,53 @@ def analyze(stock_id):
         signal_light = "🔴"
 
     # ====================================
-    # 建議
+    # 強度燈號
+    # ====================================
+
+    strength_light = "⚪"
+
+    if score >= 10:
+        strength_light = "🔥"
+
+    elif score >= 7:
+        strength_light = "🟢"
+
+    elif score >= 4:
+        strength_light = "🟡"
+
+    else:
+        strength_light = "🔴"
+
+    # ====================================
+    # 建議 / 操作策略
     # ====================================
 
     action = "等待"
+    strategy_text = "等待更明確訊號"
 
     if signal == "YES":
+
         action = "最佳波段區"
+        strategy_text = "可等待 EMA20 附近止穩分批"
 
     elif signal == "HOT":
+
         action = "主流強勢避免追高"
+        strategy_text = "主流股但避免追高，等回檔再看"
 
     elif signal == "EARLY":
+
         action = "剛轉強觀察"
+        strategy_text = "剛轉強可提前觀察，等量能確認"
 
     elif signal == "NO":
+
         action = "弱勢避免"
+        strategy_text = "弱勢股避免進場"
+
+    if fake_strength:
+        action = "高檔過熱避免追價"
+        strategy_text = "疑似假強勢或高檔過熱，不追價"
 
     # ====================================
     # 入場區
@@ -755,6 +806,22 @@ def analyze(stock_id):
         entry_zone = "不建議"
 
     # ====================================
+    # 主力成本區
+    # ====================================
+
+    cost_zone_low = round(
+        latest["EMA20"] * 0.98,
+        2
+    )
+
+    cost_zone_high = round(
+        latest["EMA20"] * 1.02,
+        2
+    )
+
+    cost_zone = f"{cost_zone_low} ~ {cost_zone_high}"
+
+    # ====================================
     # RR
     # ====================================
 
@@ -801,6 +868,39 @@ def analyze(stock_id):
 
     elif rr >= 1:
         rr_level = "普通"
+
+    # ====================================
+    # 熱門分數
+    # ====================================
+
+    hot_score = 0
+
+    hot_score += min(
+        max(week_change, 0),
+        20
+    )
+
+    hot_score += min(
+        vol_ratio * 3,
+        10
+    )
+
+    hot_score += min(
+        latest["K"] / 10,
+        10
+    )
+
+    if foreign_trend == "連買":
+        hot_score += 10
+
+    elif foreign_trend == "偏多":
+        hot_score += 4
+
+    if trust_trend == "連買":
+        hot_score += 8
+
+    elif trust_trend == "偏多":
+        hot_score += 4
 
     # ====================================
     # 視覺化
@@ -883,11 +983,19 @@ def analyze(stock_id):
         "主力方向": main_force,
         "分數": int(score),
         "分數條": f"{score_bar} {score}/10",
+        "強度燈號": strength_light,
+        "熱門分數": round(hot_score, 1),
         "回檔分數": int(pullback_score),
         "波段燈號": signal_light,
         "判斷": signal,
         "建議": action,
+        "操作策略": strategy_text,
         "入場區間": entry_zone,
+        "主力成本區": cost_zone,
+        "健康回檔": "是" if healthy_pullback else "否",
+        "主升": "是" if main_uptrend else "否",
+        "假強勢": "是" if fake_strength else "否",
+        "追高風險": int(chase_risk),
         "停損價": stop_loss,
         "目標價": target_price,
         "RR": rr,
@@ -1052,7 +1160,7 @@ if start_btn:
                 ] = "、".join(reasons)
 
         df_result = df_result.sort_values(
-            ["排序", "分數", "回檔分數", "量比"],
+            ["排序", "分數", "回檔分數", "熱門分數"],
             ascending=[
                 True,
                 False,
@@ -1087,6 +1195,23 @@ if not df_result.empty:
         &
         (df_result["量比"] >= min_vol_ratio)
     ]
+
+    # ====================================
+    # 統計卡片
+    # ====================================
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+
+    c1.metric("股票數", len(df_result))
+    c2.metric("YES", len(df_result[df_result["判斷"] == "YES"]))
+    c3.metric("HOT", len(df_result[df_result["判斷"] == "HOT"]))
+    c4.metric("EARLY", len(df_result[df_result["判斷"] == "EARLY"]))
+    c5.metric("WAIT", len(df_result[df_result["判斷"] == "WAIT"]))
+    c6.metric("NO", len(df_result[df_result["判斷"] == "NO"]))
+
+    # ====================================
+    # 主表
+    # ====================================
 
     st.subheader("📊 波段分析結果")
 
@@ -1125,3 +1250,144 @@ if not df_result.empty:
                 ],
                 use_container_width=True
             )
+
+    # ====================================
+    # TOP5
+    # ====================================
+
+    st.divider()
+
+    st.subheader("🏆 TOP5 真強勢股")
+
+    top5 = (
+        filtered
+        .sort_values(
+            ["分數", "熱門分數", "回檔分數"],
+            ascending=[False, False, False]
+        )
+        .head(5)
+    )
+
+    cols = st.columns(5)
+
+    for idx, (_, row) in enumerate(top5.iterrows()):
+
+        with cols[idx]:
+
+            st.markdown(
+                f"""
+### {row['股票']} {row['波段燈號']}
+
+**{row['判斷']}**
+
+收盤：{row['收盤價']}
+
+強度：{row['強度燈號']}
+
+分數：{row['分數']}
+
+{row['分數條']}
+
+熱門分數：{row['熱門分數']}
+
+主力：{row['主力方向']}
+
+外資：{row['外資趨勢']}
+
+投信：{row['投信趨勢']}
+
+入場：  
+{row['入場區間']}
+
+成本區：  
+{row['主力成本區']}
+
+RR：{row['RR']}（{row['RR評級']}）
+
+策略：  
+{row['操作策略']}
+"""
+            )
+
+    # ====================================
+    # K線圖
+    # ====================================
+
+    st.divider()
+
+    st.subheader("📈 K線圖")
+
+    selected_stock = st.selectbox(
+        "選擇股票",
+        filtered["股票"].tolist()
+    )
+
+    if selected_stock in chart_data:
+
+        fig = plot_kline(
+            chart_data[selected_stock],
+            selected_stock
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        stock_row = df_result[
+            df_result["股票"] == selected_stock
+        ].iloc[0]
+
+        st.subheader("📌 單股重點")
+
+        st.write(
+            f"""
+股票：{stock_row["股票"]}
+
+波段燈號：{stock_row["波段燈號"]}
+
+強度燈號：{stock_row["強度燈號"]}
+
+判斷：{stock_row["判斷"]}
+
+型態：{stock_row["型態"]}
+
+波段階段：{stock_row["階段燈號"]} {stock_row["波段階段"]}
+
+主升：{stock_row["主升"]}
+
+健康回檔：{stock_row["健康回檔"]}
+
+假強勢：{stock_row["假強勢"]}
+
+主力方向：{stock_row["主力方向"]}
+
+外資趨勢：{stock_row["外資趨勢"]}
+
+投信趨勢：{stock_row["投信趨勢"]}
+
+分數：{stock_row["分數"]}
+
+熱門分數：{stock_row["熱門分數"]}
+
+入場區間：{stock_row["入場區間"]}
+
+主力成本區：{stock_row["主力成本區"]}
+
+停損價：{stock_row["停損價"]}
+
+目標價：{stock_row["目標價"]}
+
+RR：{stock_row["RR"]}（{stock_row["RR評級"]}）
+
+追高風險：{stock_row["追高風險"]}
+
+FOMO風險：{stock_row["FOMO風險"]}
+
+風險：{stock_row["風險視覺"]} {stock_row["風險"]}
+
+操作策略：{stock_row["操作策略"]}
+
+建議：{stock_row["建議"]}
+"""
+        )
