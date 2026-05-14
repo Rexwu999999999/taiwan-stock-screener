@@ -13,7 +13,6 @@ headers = {
 url = "https://api.finmindtrade.com/api/v4/data"
 
 watchlist = [
-
     "2308",
     "2376",
     "2327",
@@ -24,7 +23,6 @@ watchlist = [
     "4938",
     "2449",
     "2421",
-
 ]
 
 if not os.path.exists("cache"):
@@ -59,74 +57,6 @@ def get_valid_date(stock_id):
             return d
 
     return None
-
-
-def get_institutional_days(stock_id):
-
-    try:
-
-        end_date = datetime.today().strftime("%Y-%m-%d")
-
-        start_date = (
-            datetime.today()
-            - timedelta(days=30)
-        ).strftime("%Y-%m-%d")
-
-        params = {
-            "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
-            "data_id": stock_id,
-            "start_date": start_date,
-            "end_date": end_date
-        }
-
-        r = requests.get(
-            url,
-            headers=headers,
-            params=params
-        )
-
-        data = r.json().get("data", [])
-
-        if len(data) == 0:
-            return 0, 0
-
-        df_ins = pd.DataFrame(data)
-
-        foreign = df_ins[
-            df_ins["name"] == "Foreign_Investor"
-        ]
-
-        invest = df_ins[
-            df_ins["name"] == "Investment_Trust"
-        ]
-
-        foreign_days = 0
-
-        for v in reversed(
-            foreign["buy_sell"].tolist()
-        ):
-
-            if v > 0:
-                foreign_days += 1
-            else:
-                break
-
-        invest_days = 0
-
-        for v in reversed(
-            invest["buy_sell"].tolist()
-        ):
-
-            if v > 0:
-                invest_days += 1
-            else:
-                break
-
-        return foreign_days, invest_days
-
-    except:
-
-        return 0, 0
 
 
 all_data = []
@@ -198,8 +128,6 @@ for stock_id in watchlist:
             2
         )
 
-        foreign_days, invest_days = get_institutional_days(stock_id)
-
         ai_score = 0
 
         if close_price > ma5:
@@ -207,12 +135,6 @@ for stock_id in watchlist:
 
         if close_price > ema20:
             ai_score += 3
-
-        if foreign_days >= 3:
-            ai_score += 3
-
-        if invest_days >= 3:
-            ai_score += 2
 
         result = {
 
@@ -228,12 +150,6 @@ for stock_id in watchlist:
 
             "成交量":
             int(latest["Trading_Volume"]),
-
-            "外資連買":
-            foreign_days,
-
-            "投信連買":
-            invest_days,
 
             "AI分數":
             ai_score,
@@ -251,13 +167,10 @@ for stock_id in watchlist:
 
 final_df = pd.DataFrame(all_data)
 
-if (
-    not final_df.empty
-    and "AI分數" in final_df.columns
-):
+if not final_df.empty:
 
     final_df = final_df.sort_values(
-        by=["AI分數"],
+        "AI分數",
         ascending=False
     )
 
