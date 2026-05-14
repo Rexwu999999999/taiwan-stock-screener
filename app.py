@@ -14,156 +14,209 @@ try:
         "cache/latest.csv"
     )
 
-    st.success("快取資料讀取成功")
+except:
 
-    # ===== 篩選器 =====
+    st.error("找不到資料")
 
-    col1, col2, col3 = st.columns(3)
+    st.stop()
 
-    with col1:
+st.success("快取資料讀取成功")
 
-        themes = ["全部"] + sorted(
-            df["族群"]
-            .dropna()
-            .unique()
-            .tolist()
-        )
 
-        selected_theme = st.selectbox(
-            "選擇族群",
-            themes
-        )
+# =========================
+# 篩選器
+# =========================
 
-    with col2:
+col1, col2, col3 = st.columns(3)
 
-        min_ai = st.slider(
-            "最低 AI 分數",
-            int(df["AI分數"].min()),
-            int(df["AI分數"].max()),
-            0
-        )
+themes = ["全部"] + sorted(
+    df["族群"].dropna().unique().tolist()
+)
 
-    with col3:
+selected_theme = col1.selectbox(
+    "選擇族群",
+    themes
+)
 
-        min_value = st.slider(
-            "最低成交值(億)",
-            0,
-            int(df["成交值(億)"].max()),
-            0
-        )
+min_ai = col2.slider(
+    "最低 AI 分數",
+    0,
+    int(df["AI分數"].max()),
+    0
+)
 
-    # ===== 篩選 =====
+min_value = col3.slider(
+    "最低成交值(億)",
+    0,
+    int(df["成交值(億)"].max()),
+    0
+)
 
-    filtered_df = df.copy()
 
-    if selected_theme != "全部":
+filtered_df = df.copy()
 
-        filtered_df = filtered_df[
-            filtered_df["族群"] == selected_theme
-        ]
+if selected_theme != "全部":
 
     filtered_df = filtered_df[
-        filtered_df["AI分數"] >= min_ai
+        filtered_df["族群"] == selected_theme
     ]
 
-    filtered_df = filtered_df[
-        filtered_df["成交值(億)"] >= min_value
-    ]
+filtered_df = filtered_df[
+    filtered_df["AI分數"] >= min_ai
+]
 
-    # ===== 排序 =====
+filtered_df = filtered_df[
+    filtered_df["成交值(億)"] >= min_value
+]
 
-    filtered_df = filtered_df.sort_values(
-        by=[
-            "AI分數",
-            "成交值(億)",
-            "量比"
-        ],
+
+# =========================
+# 熱門 AI 排行
+# =========================
+
+st.subheader("🔥 今日熱門 AI 排行")
+
+show_columns = [
+
+    "熱門排行",
+
+    "股票",
+
+    "名稱",
+
+    "市場",
+
+    "族群",
+
+    "日期",
+
+    "收盤價",
+
+    "漲幅%",
+
+    "MA5",
+
+    "EMA20",
+
+    "KD-K",
+
+    "KD-D",
+
+    "MACD",
+
+    "SIGNAL",
+
+    "成交量",
+
+    "量比",
+
+    "成交值(億)",
+
+    "60日高點",
+
+    "20日支撐",
+
+    "距離前高%",
+
+    "RR",
+
+    "外資今日",
+
+    "外資3日",
+
+    "AI分數",
+
+    "交易品質",
+]
+
+show_columns = [
+    c for c in show_columns
+    if c in filtered_df.columns
+]
+
+st.dataframe(
+
+    filtered_df[show_columns],
+
+    use_container_width=True,
+
+    height=700
+)
+
+
+# =========================
+# 成交值排行
+# =========================
+
+st.subheader("💰 成交值排行")
+
+value_df = (
+
+    filtered_df
+    .sort_values(
+        "成交值(億)",
         ascending=False
     )
+    .head(20)
+)
 
-    # ===== 熱門排行榜 =====
+st.dataframe(
 
-    st.subheader("🔥 今日熱門 AI 排行")
+    value_df[show_columns],
 
-    top_df = filtered_df.head(50)
+    use_container_width=True,
 
-    st.dataframe(
-        top_df,
-        use_container_width=True,
-        height=700
-    )
+    height=500
+)
 
-    # ===== 各排行榜 =====
 
-    colA, colB = st.columns(2)
+# =========================
+# 爆量排行
+# =========================
 
-    with colA:
+st.subheader("⚡ 爆量排行")
 
-        st.subheader("💰 成交值排行")
+volume_df = (
 
-        value_rank = filtered_df.sort_values(
-            "成交值(億)",
-            ascending=False
-        ).head(20)
-
-        st.dataframe(
-            value_rank[
-                [
-                    "股票",
-                    "族群",
-                    "成交值(億)",
-                    "AI分數",
-                    "交易品質"
-                ]
-            ],
-            use_container_width=True
-        )
-
-    with colB:
-
-        st.subheader("⚡ 爆量排行")
-
-        volume_rank = filtered_df.sort_values(
-            "量比",
-            ascending=False
-        ).head(20)
-
-        st.dataframe(
-            volume_rank[
-                [
-                    "股票",
-                    "族群",
-                    "量比",
-                    "AI分數",
-                    "交易品質"
-                ]
-            ],
-            use_container_width=True
-        )
-
-    # ===== 法人排行 =====
-
-    st.subheader("🧠 法人最強")
-
-    inst_rank = filtered_df.sort_values(
-        "外資",
+    filtered_df
+    .sort_values(
+        "量比",
         ascending=False
-    ).head(20)
-
-    st.dataframe(
-        inst_rank[
-            [
-                "股票",
-                "族群",
-                "外資",
-                "投信",
-                "AI分數",
-                "交易品質"
-            ]
-        ],
-        use_container_width=True
     )
+    .head(20)
+)
 
-except Exception as e:
+st.dataframe(
 
-    st.error(str(e))
+    volume_df[show_columns],
+
+    use_container_width=True,
+
+    height=500
+)
+
+
+# =========================
+# 外資排行
+# =========================
+
+st.subheader("🏦 外資排行")
+
+foreign_df = (
+
+    filtered_df
+    .sort_values(
+        "外資3日",
+        ascending=False
+    )
+    .head(20)
+)
+
+st.dataframe(
+
+    foreign_df[show_columns],
+
+    use_container_width=True,
+
+    height=500
+)
