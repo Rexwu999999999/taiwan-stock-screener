@@ -244,15 +244,13 @@ for stock_id in watchlist:
 
 final_df = pd.DataFrame(all_data)
 
-print(final_df.columns)
-
 if (
     not final_df.empty
     and "AI分數" in final_df.columns
 ):
 
     final_df = final_df.sort_values(
-        by="AI分數",
+        by=["AI分數"],
         ascending=False
     )
 
