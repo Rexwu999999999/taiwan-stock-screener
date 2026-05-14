@@ -1,6 +1,6 @@
 # ========================================
 # app.py
-# 台股波段選股儀表板 最終修正版
+# 台股波段選股儀表板 完整整合版
 # ========================================
 
 import streamlit as st
@@ -22,7 +22,6 @@ st.set_page_config(
 st.title("🔥 台股波段選股儀表板")
 
 today_str = datetime.today().strftime("%Y-%m-%d %H:%M")
-
 st.caption(f"系統時間：{today_str}")
 
 # ========================================
@@ -92,6 +91,13 @@ min_score = st.sidebar.slider(
     "最低分數",
     0,
     15,
+    5
+)
+
+min_total_score = st.sidebar.slider(
+    "最低綜合分數",
+    0,
+    20,
     5
 )
 
@@ -368,10 +374,6 @@ def analyze(stock_id):
         2
     )
 
-    # ====================================
-    # 距離前高
-    # ====================================
-
     distance_high = round(
         (
             (resistance - latest["close"])
@@ -521,10 +523,6 @@ def analyze(stock_id):
         f"KD:{kd_score}"
     )
 
-    # ====================================
-    # 總分
-    # ====================================
-
     score = (
         trend_score
         + chip_score
@@ -533,7 +531,7 @@ def analyze(stock_id):
     )
 
     # ====================================
-    # 主升
+    # 主升 / 健康回檔 / 假強勢
     # ====================================
 
     main_uptrend = False
@@ -545,10 +543,6 @@ def analyze(stock_id):
     ):
         main_uptrend = True
 
-    # ====================================
-    # 健康回檔
-    # ====================================
-
     healthy_pullback = False
 
     if (
@@ -557,10 +551,6 @@ def analyze(stock_id):
         and latest["K"] > 35
     ):
         healthy_pullback = True
-
-    # ====================================
-    # 假強勢
-    # ====================================
 
     fake_strength = False
 
@@ -663,36 +653,111 @@ def analyze(stock_id):
         )
 
     # ====================================
-    # 訊號（修正版）
+    # 位置分數
+    # ====================================
+
+    position_score = 0
+
+    if distance_high > 10:
+        position_score += 2
+
+    elif distance_high > 5:
+        position_score += 1
+
+    if rr >= 2:
+        position_score += 2
+
+    elif rr >= 1.2:
+        position_score += 1
+
+    if abs(bias_ma5) <= 3:
+        position_score += 1
+
+    if abs(bias_ema20) <= 5:
+        position_score += 1
+
+    if latest["K"] > 85:
+        position_score -= 2
+
+    if week_change > 15:
+        position_score -= 2
+
+    if rr < 1:
+        position_score -= 3
+
+    if distance_high < 3:
+        position_score -= 2
+
+    if bias_ma5 > 8:
+        position_score -= 1
+
+    # ====================================
+    # 位置評級
+    # ====================================
+
+    position_grade = "普通"
+
+    if position_score >= 4:
+        position_grade = "漂亮"
+
+    elif position_score >= 2:
+        position_grade = "尚可"
+
+    elif position_score <= -2:
+        position_grade = "很差"
+
+    elif position_score < 2:
+        position_grade = "普通"
+
+    position_reason = (
+        f"位置:{position_score} "
+        f"RR:{rr} "
+        f"距前高:{distance_high}% "
+        f"MA5乖離:{round(bias_ma5, 2)}%"
+    )
+
+    # ====================================
+    # 綜合分數
+    # ====================================
+
+    total_score = score + position_score
+
+    # ====================================
+    # 訊號（強度 + 位置）
     # ====================================
 
     signal = "WAIT"
 
-    # 真正適合進場
+    # 真正適合進場：強 + 位置好
     if (
-        score >= 10
+        score >= 9
+        and total_score >= 10
         and healthy_pullback
         and latest["K"] < 80
-        and week_change < 18
-        and bias_ma5 < 8
+        and week_change < 15
         and rr >= 1.2
         and distance_high > 5
+        and position_score >= 2
     ):
         signal = "YES"
 
-    # 主流強勢但過熱
+    # 強但位置不好
     elif (
         score >= 9
         and (
             latest["K"] >= 80
-            or week_change >= 18
-            or rr < 1
+            or week_change >= 15
+            or rr < 1.2
             or distance_high <= 5
+            or position_score < 2
         )
     ):
         signal = "HOT"
 
-    elif score >= 7:
+    elif (
+        score >= 7
+        and position_score >= 0
+    ):
         signal = "EARLY"
 
     elif latest["close"] < latest["EMA20"]:
@@ -768,7 +833,12 @@ def analyze(stock_id):
         "外資趨勢": foreign_trend,
         "投信趨勢": trust_trend,
 
-        "分數": score,
+        "強度分": score,
+        "位置分": position_score,
+        "綜合分": total_score,
+
+        "位置評級": position_grade,
+        "位置說明": position_reason,
 
         "熱門分數": round(hot_score, 1),
 
@@ -907,7 +977,9 @@ if start_btn:
 
         df_result = df_result.sort_values(
             [
-                "分數",
+                "綜合分",
+                "強度分",
+                "位置分",
                 "熱門分數"
             ],
             ascending=False
@@ -931,7 +1003,9 @@ chart_data = st.session_state["chart_data"]
 if not df_result.empty:
 
     filtered = df_result[
-        (df_result["分數"] >= min_score)
+        (df_result["強度分"] >= min_score)
+        &
+        (df_result["綜合分"] >= min_total_score)
         &
         (df_result["本週%"] <= max_week_gain)
         &
@@ -968,11 +1042,17 @@ if not df_result.empty:
                 f"""
 ### {row['股票']} {row['波段燈號']}
 
-分數：
-{row['分數']}
+強度分：
+{row['強度分']}
 
-熱門分數：
-{row['熱門分數']}
+位置分：
+{row['位置分']}
+
+綜合分：
+{row['綜合分']}
+
+位置：
+{row['位置評級']}
 
 主流：
 {row['主流族群']}
@@ -991,6 +1071,9 @@ RR：
 
 分數拆解：
 {row['分數拆解']}
+
+位置說明：
+{row['位置說明']}
 
 排除原因：
 {row['排除原因']}
@@ -1053,8 +1136,23 @@ RR：
 量能狀態：
 {stock_row['量能狀態']}
 
+強度分：
+{stock_row['強度分']}
+
+位置分：
+{stock_row['位置分']}
+
+綜合分：
+{stock_row['綜合分']}
+
+位置評級：
+{stock_row['位置評級']}
+
 分數拆解：
 {stock_row['分數拆解']}
+
+位置說明：
+{stock_row['位置說明']}
 
 排除原因：
 {stock_row['排除原因']}
