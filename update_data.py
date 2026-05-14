@@ -19,6 +19,10 @@ INTERVAL = "1d"
 OUTPUT_PATH = "cache/latest.csv"
 
 
+# =========================
+# API
+# =========================
+
 def fetch_json(url):
 
     try:
@@ -36,6 +40,10 @@ def fetch_json(url):
 
         return []
 
+
+# =========================
+# 產業對照
+# =========================
 
 INDUSTRY_MAP = {
 
@@ -83,19 +91,20 @@ def normalize_industry(raw):
     raw = str(raw).strip()
 
     if raw in INDUSTRY_MAP:
-
         return INDUSTRY_MAP[raw]
 
     if raw.zfill(2) in INDUSTRY_MAP:
-
         return INDUSTRY_MAP[raw.zfill(2)]
 
     if raw == "" or raw.lower() == "nan":
-
         return "其他"
 
     return raw
 
+
+# =========================
+# 股票清單
+# =========================
 
 def get_twse_listed_stocks():
 
@@ -193,26 +202,55 @@ def get_stock_list():
 
     if df.empty:
 
-        return pd.DataFrame(
-            columns=[
-                "股票",
-                "名稱",
-                "族群",
-                "市場",
-                "yf_ticker"
-            ]
-        )
+        return pd.DataFrame()
 
     df = df.drop_duplicates(
         subset=["股票"]
     )
 
-    df = df.sort_values("股票")
-
-    return df
+    return df.sort_values("股票")
 
 
-def get_foreign_investor_data(stock_id):
+# =========================
+# 主流題材
+# =========================
+
+def normalize_theme(stock_id, industry):
+
+    theme_map = {
+
+        "2308": "AI",
+        "2376": "AI",
+        "2327": "AI",
+        "2382": "AI",
+        "3017": "AI",
+        "3231": "AI",
+        "6669": "AI",
+
+        "4938": "散熱",
+        "3014": "散熱",
+
+        "3324": "CPO",
+        "4908": "CPO",
+
+        "1503": "重電",
+        "1519": "重電",
+
+        "2330": "半導體",
+        "2454": "半導體",
+    }
+
+    return theme_map.get(
+        stock_id,
+        industry if industry else "其他"
+    )
+
+
+# =========================
+# 法人資料
+# =========================
+
+def get_institutional_data(stock_id):
 
     try:
 
@@ -243,74 +281,83 @@ def get_foreign_investor_data(stock_id):
 
         if len(data) == 0:
 
-            return 0, 0
+            return {
+
+                "foreign_today": 0,
+                "foreign_3d": 0,
+
+                "trust_today": 0,
+                "trust_3d": 0,
+            }
 
         df = pd.DataFrame(data)
 
+        result = {
+
+            "foreign_today": 0,
+            "foreign_3d": 0,
+
+            "trust_today": 0,
+            "trust_3d": 0,
+        }
+
+        # 外資
         foreign_df = df[
             df["name"] == "Foreign_Investor"
         ]
 
-        if foreign_df.empty:
+        if not foreign_df.empty:
 
-            return 0, 0
+            foreign_df["buy_sell"] = pd.to_numeric(
+                foreign_df["buy_sell"],
+                errors="coerce"
+            )
 
-        foreign_df["buy_sell"] = pd.to_numeric(
-            foreign_df["buy_sell"],
-            errors="coerce"
-        )
+            result["foreign_today"] = int(
+                foreign_df.tail(1)["buy_sell"].sum()
+            )
 
-        latest = foreign_df.tail(1)
+            result["foreign_3d"] = int(
+                foreign_df.tail(3)["buy_sell"].sum()
+            )
 
-        latest_value = int(
-            latest["buy_sell"].sum()
-        )
+        # 投信
+        trust_df = df[
+            df["name"] == "Investment_Trust"
+        ]
 
-        recent_3d = int(
-            foreign_df.tail(3)["buy_sell"].sum()
-        )
+        if not trust_df.empty:
 
-        return latest_value, recent_3d
+            trust_df["buy_sell"] = pd.to_numeric(
+                trust_df["buy_sell"],
+                errors="coerce"
+            )
+
+            result["trust_today"] = int(
+                trust_df.tail(1)["buy_sell"].sum()
+            )
+
+            result["trust_3d"] = int(
+                trust_df.tail(3)["buy_sell"].sum()
+            )
+
+        return result
 
     except:
 
-        return 0, 0
+        return {
+
+            "foreign_today": 0,
+            "foreign_3d": 0,
+
+            "trust_today": 0,
+            "trust_3d": 0,
+        }
 
 
-def normalize_theme(stock_id, industry):
-
-    theme_map = {
-
-        "2308": "AI",
-        "2376": "AI",
-        "2327": "AI",
-        "2382": "AI",
-        "3017": "AI",
-        "3231": "AI",
-        "6669": "AI",
-
-        "1503": "重電",
-        "1504": "重電",
-        "1519": "重電",
-
-        "4938": "散熱",
-        "3014": "散熱",
-
-        "8110": "生技",
-
-        "2330": "半導體",
-        "2454": "半導體",
-        "2303": "半導體",
-
-        "3324": "CPO",
-        "4908": "CPO",
-    }
-
-    return theme_map.get(
-        stock_id,
-        industry if industry else "其他"
-    )
-
+# =========================
+# 指標
+# =========================
 
 def safe_round(value, digits=2):
 
@@ -402,7 +449,14 @@ def calc_macd(df):
     return macd, signal
 
 
+# =========================
+# 分析
+# =========================
+
 def analyze_stock(stock_row, df):
+
+    if df.empty:
+        return None
 
     stock_id = stock_row["股票"]
 
@@ -412,16 +466,10 @@ def analyze_stock(stock_row, df):
 
     industry = stock_row["族群"]
 
-    if df.empty:
-        return None
-
     df = df.copy()
 
     df = df.dropna(
-        subset=[
-            "Close",
-            "Volume"
-        ]
+        subset=["Close", "Volume"]
     )
 
     if len(df) < 60:
@@ -438,11 +486,12 @@ def analyze_stock(stock_row, df):
         latest["Volume"]
     )
 
-    if close_price <= 0:
+    if close_price <= 0 or volume <= 0:
         return None
 
-    if volume <= 0:
-        return None
+    # =========================
+    # 均線
+    # =========================
 
     df["MA5"] = (
         df["Close"]
@@ -460,14 +509,44 @@ def analyze_stock(stock_row, df):
     )
 
     ma5 = safe_round(
-        df.iloc[-1]["MA5"],
-        2
+        df.iloc[-1]["MA5"]
     )
 
     ema20 = safe_round(
-        df.iloc[-1]["EMA20"],
-        2
+        df.iloc[-1]["EMA20"]
     )
+
+    # =========================
+    # KD
+    # =========================
+
+    k, d = calc_kd(df)
+
+    k_value = safe_round(
+        k.iloc[-1]
+    )
+
+    d_value = safe_round(
+        d.iloc[-1]
+    )
+
+    # =========================
+    # MACD
+    # =========================
+
+    macd, signal = calc_macd(df)
+
+    macd_value = safe_round(
+        macd.iloc[-1]
+    )
+
+    signal_value = safe_round(
+        signal.iloc[-1]
+    )
+
+    # =========================
+    # 成交值
+    # =========================
 
     avg_volume_20 = (
         df["Volume"]
@@ -480,9 +559,18 @@ def analyze_stock(stock_row, df):
     if avg_volume_20 > 0:
 
         volume_ratio = safe_round(
-            volume / avg_volume_20,
-            2
+            volume / avg_volume_20
         )
+
+    trading_value = safe_round(
+        close_price
+        * volume
+        / 100000000
+    )
+
+    # =========================
+    # 前高
+    # =========================
 
     high_60 = (
         df["Close"]
@@ -497,13 +585,11 @@ def analyze_stock(stock_row, df):
     )
 
     resistance = safe_round(
-        high_60,
-        2
+        high_60
     )
 
     support = safe_round(
-        low_20,
-        2
+        low_20
     )
 
     distance_high = 0
@@ -515,9 +601,12 @@ def analyze_stock(stock_row, df):
                 (
                     high_60 - close_price
                 ) / high_60
-            ) * 100,
-            2
+            ) * 100
         )
+
+    # =========================
+    # RR
+    # =========================
 
     reward = resistance - close_price
 
@@ -528,40 +617,12 @@ def analyze_stock(stock_row, df):
     if risk > 0:
 
         rr = safe_round(
-            reward / risk,
-            2
+            reward / risk
         )
 
-    trading_value = safe_round(
-        close_price
-        * volume
-        / 100000000,
-        2
-    )
-
-    k, d = calc_kd(df)
-
-    macd, signal = calc_macd(df)
-
-    k_value = safe_round(
-        k.iloc[-1],
-        2
-    )
-
-    d_value = safe_round(
-        d.iloc[-1],
-        2
-    )
-
-    macd_value = safe_round(
-        macd.iloc[-1],
-        2
-    )
-
-    signal_value = safe_round(
-        signal.iloc[-1],
-        2
-    )
+    # =========================
+    # 漲幅
+    # =========================
 
     day_change_percent = 0
 
@@ -573,75 +634,62 @@ def analyze_stock(stock_row, df):
 
         if prev_close > 0:
 
-            day_change_percent = round(
+            day_change_percent = safe_round(
                 (
                     (
                         close_price - prev_close
                     )
                     / prev_close
-                ) * 100,
-                2
+                ) * 100
             )
 
     except:
         pass
+
+    # =========================
+    # 主題
+    # =========================
 
     theme = normalize_theme(
         stock_id,
         industry
     )
 
-    foreign_today, foreign_3d = get_foreign_investor_data(
+    # =========================
+    # 法人
+    # =========================
+
+    chip = get_institutional_data(
         stock_id
     )
 
+    foreign_today = chip["foreign_today"]
+    foreign_3d = chip["foreign_3d"]
+
+    trust_today = chip["trust_today"]
+    trust_3d = chip["trust_3d"]
+
+    # =========================
+    # AI SCORE
+    # =========================
+
     ai_score = 0
 
-    if trading_value >= 300:
-
-        ai_score += 12
-
-    elif trading_value >= 200:
-
-        ai_score += 10
-
-    elif trading_value >= 100:
+    # 成交值剛開始放大
+    if trading_value >= 20 and volume_ratio >= 2:
 
         ai_score += 8
 
-    elif trading_value >= 50:
+    elif trading_value >= 10 and volume_ratio >= 1.5:
 
         ai_score += 6
 
-    elif trading_value >= 20:
+    elif trading_value >= 5 and volume_ratio >= 1.2:
 
-        ai_score += 4
+        ai_score += 3
 
-    elif trading_value >= 10:
-
-        ai_score += 2
-
-    if day_change_percent >= 8:
-
-        ai_score += 8
-
-    elif day_change_percent >= 6:
-
-        ai_score += 6
-
-    elif day_change_percent >= 4:
-
-        ai_score += 4
-
-    elif day_change_percent >= 2:
-
-        ai_score += 2
-
-    if volume_ratio >= 5:
-
-        ai_score += 8
-
-    elif volume_ratio >= 3:
+    # 量比
+    if volume_ratio >= 3:
 
         ai_score += 6
 
@@ -653,117 +701,121 @@ def analyze_stock(stock_row, df):
 
         ai_score += 2
 
-    if foreign_today >= 5000:
+    # 漲幅
+    if 2 <= day_change_percent <= 7:
 
         ai_score += 6
 
-    elif foreign_today >= 2000:
+    elif 0 <= day_change_percent < 2:
+
+        ai_score += 3
+
+    # MACD 剛翻多
+    if macd_value > signal_value:
+
+        ai_score += 5
+
+    # KD
+    if k_value > d_value and k_value < 80:
 
         ai_score += 4
 
-    elif foreign_today > 0:
-
-        ai_score += 2
-
-    if foreign_3d >= 10000:
-
-        ai_score += 6
-
-    elif foreign_3d >= 5000:
+    # EMA20
+    if close_price > ema20:
 
         ai_score += 4
 
-    elif foreign_3d > 0:
+    # MA5
+    if close_price > ma5:
 
         ai_score += 2
 
-    if foreign_today <= -5000:
+    # 接近突破
+    if distance_high <= 3:
 
-        ai_score -= 6
+        ai_score += 5
 
-    elif foreign_today <= -2000:
+    elif distance_high <= 8:
 
-        ai_score -= 4
+        ai_score += 3
 
+    # RR
+    if rr >= 2:
+
+        ai_score += 3
+
+    # 外資
+    if foreign_today > 0:
+
+        ai_score += 3
+
+    if foreign_3d > 0:
+
+        ai_score += 4
+
+    # 投信
+    if trust_today > 0:
+
+        ai_score += 4
+
+    if trust_3d > 0:
+
+        ai_score += 5
+
+    # 題材
     hot_themes = [
 
         "AI",
         "半導體",
-        "電子零組件",
-        "電腦及週邊",
-        "光電",
-        "通信網路",
         "散熱",
         "CPO",
         "ASIC",
         "重電",
-        "電機機械",
-        "生技",
-        "生技醫療",
-        "綠能環保",
+        "電子零組件",
+        "電腦及週邊",
+        "通信網路",
+        "生技"
     ]
 
     if theme in hot_themes:
 
-        ai_score += 5
+        ai_score += 6
 
-    if close_price > ma5:
+    # 過熱扣分
+    if day_change_percent >= 9:
 
-        ai_score += 1
+        ai_score -= 8
 
-    if close_price > ema20:
+    if volume_ratio >= 8:
 
-        ai_score += 1
+        ai_score -= 5
 
-    if k_value > d_value:
-
-        ai_score += 1
-
-    if macd_value > signal_value:
-
-        ai_score += 1
-
-    if rr >= 3:
-
-        ai_score += 3
-
-    elif rr >= 2:
-
-        ai_score += 2
-
-    elif rr >= 1:
-
-        ai_score += 1
-
-    if distance_high <= 1:
-
-        ai_score -= 3
-
-    elif distance_high <= 3:
-
-        ai_score -= 1
-
-    if trading_value < 3:
+    # 流動性過低
+    if trading_value < 2:
 
         ai_score -= 10
 
-    quality = "偏弱"
+    # =========================
+    # 品質
+    # =========================
+
+    quality = "普通"
 
     if ai_score >= 35:
 
-        quality = "超級熱門"
+        quality = "提前發動"
 
-    elif ai_score >= 25:
+    elif ai_score >= 28:
 
-        quality = "熱門強勢"
+        quality = "潛力強勢"
 
-    elif ai_score >= 15:
+    elif ai_score >= 20:
 
         quality = "可觀察"
 
-    elif ai_score >= 8:
-
-        quality = "普通"
+    # =========================
+    # 回傳
+    # =========================
 
     return {
 
@@ -811,11 +863,19 @@ def analyze_stock(stock_row, df):
 
         "外資3日": foreign_3d,
 
+        "投信今日": trust_today,
+
+        "投信3日": trust_3d,
+
         "AI分數": ai_score,
 
         "交易品質": quality,
     }
 
+
+# =========================
+# 批次下載
+# =========================
 
 def download_batch(tickers):
 
@@ -882,6 +942,10 @@ def extract_single_df(batch_data, ticker):
 
     return df[needed].dropna()
 
+
+# =========================
+# MAIN
+# =========================
 
 def main():
 
@@ -967,9 +1031,10 @@ def main():
 
         by=[
             "AI分數",
-            "成交值(億)",
             "量比",
-            "漲幅%"
+            "外資3日",
+            "投信3日",
+            "成交值(億)"
         ],
 
         ascending=False
