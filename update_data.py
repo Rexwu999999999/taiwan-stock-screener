@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import pandas as pd
+
 from datetime import datetime, timedelta
 
 FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
@@ -68,19 +69,21 @@ def get_stock_list():
                 "industry_category"
             ]
         )
-df["stock_id"] = (
-    df["stock_id"]
-    .astype(str)
-    .str.replace(".0", "", regex=False)
-)
 
-df = df[
-    df["stock_id"].str.len() == 4
-].copy()
+    df["stock_id"] = (
+        df["stock_id"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+    )
 
-df = df[
-    df["stock_id"].str.isnumeric()
-].copy()
+    df = df[
+        df["stock_id"].str.len() == 4
+    ].copy()
+
+    df = df[
+        df["stock_id"].str.isnumeric()
+    ].copy()
+
     if "stock_name" not in df.columns:
         df["stock_name"] = ""
 
@@ -132,7 +135,11 @@ def get_institutional_data(end_date):
     if df.empty:
         return pd.DataFrame()
 
-    df["stock_id"] = df["stock_id"].astype(str)
+    df["stock_id"] = (
+        df["stock_id"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+    )
 
     return df
 
