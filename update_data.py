@@ -1,193 +1,109 @@
 import os
 import time
+import math
 import requests
 import pandas as pd
+import yfinance as yf
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
-
-headers = {
-    "Authorization": f"Bearer {FINMIND_TOKEN}"
-}
-
-url = "https://api.finmindtrade.com/api/v4/data"
 
 os.makedirs("cache", exist_ok=True)
 
 
-def api_get(params):
+# =========================
+# 基本設定
+# =========================
 
-    r = requests.get(
-        url,
-        headers=headers,
-        params=params,
-        timeout=60
-    )
+CHUNK_SIZE = 80
+SLEEP_SECONDS = 1
+PERIOD = "9mo"
+INTERVAL = "1d"
 
-    data = r.json().get("data", [])
-
-    return pd.DataFrame(data)
+OUTPUT_PATH = "cache/latest.csv"
 
 
-def get_valid_end_date():
+# =========================
+# 股票清單：TWSE + TPEx
+# =========================
 
-    test_stock = "2330"
+def fetch_json(url):
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return []
 
-    for i in range(10):
 
-        d = (
-            datetime.today()
-            - timedelta(days=i)
-        ).strftime("%Y-%m-%d")
+def get_twse_listed_stocks():
+    url = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+    data = fetch_json(url)
 
-        df = api_get({
-            "dataset": "TaiwanStockPrice",
-            "data_id": test_stock,
-            "start_date": d,
-            "end_date": d
-        })
+    rows = []
 
-        if not df.empty:
-            return d
+    for item in data:
+        stock_id = str(item.get("公司代號", "")).strip()
+        stock_name = str(item.get("公司名稱", "")).strip()
+        industry = str(item.get("產業別", "上市")).strip()
 
-    return datetime.today().strftime("%Y-%m-%d")
+        if stock_id.isdigit() and len(stock_id) == 4:
+            rows.append({
+                "股票": stock_id,
+                "名稱": stock_name,
+                "族群": industry,
+                "市場": "上市",
+                "yf_ticker": f"{stock_id}.TW"
+            })
+
+    return rows
+
+
+def get_tpex_otc_stocks():
+    url = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
+    data = fetch_json(url)
+
+    rows = []
+
+    for item in data:
+        stock_id = str(item.get("公司代號", "")).strip()
+        stock_name = str(item.get("公司名稱", "")).strip()
+        industry = str(item.get("產業別", "上櫃")).strip()
+
+        if stock_id.isdigit() and len(stock_id) == 4:
+            rows.append({
+                "股票": stock_id,
+                "名稱": stock_name,
+                "族群": industry,
+                "市場": "上櫃",
+                "yf_ticker": f"{stock_id}.TWO"
+            })
+
+    return rows
 
 
 def get_stock_list():
+    rows = []
+    rows.extend(get_twse_listed_stocks())
+    rows.extend(get_tpex_otc_stocks())
 
-    df = api_get({
-        "dataset": "TaiwanStockInfo"
-    })
-
-    if df.empty:
-
-        return pd.DataFrame(
-            columns=[
-                "stock_id",
-                "stock_name",
-                "industry_category"
-            ]
-        )
-
-    df["stock_id"] = (
-        df["stock_id"]
-        .astype(str)
-        .str.replace(".0", "", regex=False)
-    )
-
-    df = df[
-        df["stock_id"].str.len() == 4
-    ].copy()
-
-    df = df[
-        df["stock_id"].str.isnumeric()
-    ].copy()
-
-    if "stock_name" not in df.columns:
-        df["stock_name"] = ""
-
-    if "industry_category" not in df.columns:
-        df["industry_category"] = "其他"
-
-    exclude_keywords = [
-        "ETF",
-        "ETN",
-        "指數",
-        "期貨",
-        "債",
-        "受益",
-        "基金"
-    ]
-
-    for kw in exclude_keywords:
-
-        df = df[
-            ~df["stock_name"]
-            .astype(str)
-            .str.contains(
-                kw,
-                na=False
-            )
-        ]
-
-    df = df.drop_duplicates(
-        subset=["stock_id"]
-    )
-
-    return df[
-        [
-            "stock_id",
-            "stock_name",
-            "industry_category"
-        ]
-    ]
-
-
-def get_institutional_data(end_date):
-
-    df = api_get({
-        "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
-        "start_date": end_date,
-        "end_date": end_date
-    })
+    df = pd.DataFrame(rows)
 
     if df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["股票", "名稱", "族群", "市場", "yf_ticker"])
 
-    df["stock_id"] = (
-        df["stock_id"]
-        .astype(str)
-        .str.replace(".0", "", regex=False)
-    )
+    df = df.drop_duplicates(subset=["股票"])
+    df = df.sort_values("股票")
 
     return df
 
 
-def calc_institutional(stock_id, inst_df):
+# =========================
+# 主流族群修正
+# =========================
 
-    foreign_total = 0
-    trust_total = 0
-
-    if inst_df.empty:
-        return foreign_total, trust_total
-
-    one = inst_df[
-        inst_df["stock_id"] == stock_id
-    ]
-
-    if one.empty:
-        return foreign_total, trust_total
-
-    foreign = one[
-        one["name"] == "Foreign_Investor"
-    ]
-
-    trust = one[
-        one["name"] == "Investment_Trust"
-    ]
-
-    if not foreign.empty:
-
-        foreign_total = int(
-            foreign["buy"].sum()
-            - foreign["sell"].sum()
-        )
-
-    if not trust.empty:
-
-        trust_total = int(
-            trust["buy"].sum()
-            - trust["sell"].sum()
-        )
-
-    return foreign_total, trust_total
-
-
-def get_theme(stock_id, industry):
-
+def normalize_theme(stock_id, industry):
     theme_map = {
-
         "2308": "AI",
         "2376": "AI",
         "2327": "AI",
@@ -213,226 +129,112 @@ def get_theme(stock_id, industry):
         "4908": "CPO",
     }
 
-    return theme_map.get(
-        stock_id,
-        industry if industry else "其他"
-    )
+    return theme_map.get(stock_id, industry if industry else "其他")
 
 
-def analyze_stock(
-    stock_id,
-    stock_name,
-    industry,
-    df,
-    inst_df,
-    end_date
-):
+# =========================
+# 指標計算
+# =========================
+
+def calc_kd(df):
+    low9 = df["Low"].rolling(9).min()
+    high9 = df["High"].rolling(9).max()
+
+    rsv = ((df["Close"] - low9) / (high9 - low9)) * 100
+
+    k = rsv.ewm(com=2, adjust=False).mean()
+    d = k.ewm(com=2, adjust=False).mean()
+
+    return k, d
+
+
+def calc_macd(df):
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+
+    macd = ema12 - ema26
+    signal = macd.ewm(span=9, adjust=False).mean()
+
+    return macd, signal
+
+
+def safe_round(value, digits=2):
+    try:
+        if pd.isna(value) or math.isinf(value):
+            return 0
+        return round(float(value), digits)
+    except Exception:
+        return 0
+
+
+# =========================
+# 單股分析
+# =========================
+
+def analyze_stock(stock_row, df):
+    stock_id = stock_row["股票"]
+    stock_name = stock_row["名稱"]
+    market = stock_row["市場"]
+    industry = stock_row["族群"]
 
     if df.empty:
         return None
 
-    df = df.sort_values("date").copy()
-
-    if len(df) < 60:
-        return None
-
-    for col in [
-        "open",
-        "max",
-        "min",
-        "close",
-        "Trading_Volume"
-    ]:
-
-        df[col] = pd.to_numeric(
-            df[col],
-            errors="coerce"
-        )
-
-    df = df.dropna(
-        subset=[
-            "close",
-            "Trading_Volume"
-        ]
-    )
+    df = df.copy()
+    df = df.dropna(subset=["Close", "Volume"])
 
     if len(df) < 60:
         return None
 
     latest = df.iloc[-1]
 
-    close_price = round(
-        latest["close"],
-        2
-    )
+    close_price = safe_round(latest["Close"], 2)
+    volume = int(latest["Volume"])
 
-    volume = int(
-        latest["Trading_Volume"]
-    )
+    if close_price <= 0 or volume <= 0:
+        return None
 
-    df["MA5"] = (
-        df["close"]
-        .rolling(5)
-        .mean()
-    )
+    df["MA5"] = df["Close"].rolling(5).mean()
+    df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
 
-    df["EMA20"] = (
-        df["close"]
-        .ewm(
-            span=20,
-            adjust=False
-        )
-        .mean()
-    )
+    ma5 = safe_round(df.iloc[-1]["MA5"], 2)
+    ema20 = safe_round(df.iloc[-1]["EMA20"], 2)
 
-    ma5 = round(
-        df.iloc[-1]["MA5"],
-        2
-    )
-
-    ema20 = round(
-        df.iloc[-1]["EMA20"],
-        2
-    )
-
-    avg_volume_20 = (
-        df["Trading_Volume"]
-        .tail(20)
-        .mean()
-    )
+    avg_volume_20 = df["Volume"].tail(20).mean()
 
     volume_ratio = 0
 
     if avg_volume_20 > 0:
+        volume_ratio = safe_round(volume / avg_volume_20, 2)
 
-        volume_ratio = round(
-            volume / avg_volume_20,
-            2
-        )
+    high_60 = df["Close"].tail(60).max()
+    low_20 = df["Close"].tail(20).min()
 
-    high_60 = df["close"].tail(60).max()
+    resistance = safe_round(high_60, 2)
+    support = safe_round(low_20, 2)
 
-    low_20 = df["close"].tail(20).min()
+    distance_high = 0
 
-    resistance = round(
-        high_60,
-        2
-    )
-
-    support = round(
-        low_20,
-        2
-    )
-
-    distance_high = round(
-        (
-            (high_60 - close_price)
-            / high_60
-        ) * 100,
-        2
-    )
+    if high_60 > 0:
+        distance_high = safe_round(((high_60 - close_price) / high_60) * 100, 2)
 
     reward = resistance - close_price
-
     risk = close_price - support
 
     rr = 0
 
     if risk > 0:
+        rr = safe_round(reward / risk, 2)
 
-        rr = round(
-            reward / risk,
-            2
-        )
+    trading_value = safe_round(close_price * volume / 100000000, 2)
 
-    trading_value = round(
-        close_price
-        * volume
-        / 100000000,
-        2
-    )
+    k, d = calc_kd(df)
+    macd, signal = calc_macd(df)
 
-    low9 = df["min"].rolling(9).min()
-
-    high9 = df["max"].rolling(9).max()
-
-    rsv = (
-        (df["close"] - low9)
-        /
-        (high9 - low9)
-    ) * 100
-
-    df["K"] = (
-        rsv
-        .ewm(
-            com=2,
-            adjust=False
-        )
-        .mean()
-    )
-
-    df["D"] = (
-        df["K"]
-        .ewm(
-            com=2,
-            adjust=False
-        )
-        .mean()
-    )
-
-    k_value = round(
-        df.iloc[-1]["K"],
-        2
-    )
-
-    d_value = round(
-        df.iloc[-1]["D"],
-        2
-    )
-
-    ema12 = (
-        df["close"]
-        .ewm(
-            span=12,
-            adjust=False
-        )
-        .mean()
-    )
-
-    ema26 = (
-        df["close"]
-        .ewm(
-            span=26,
-            adjust=False
-        )
-        .mean()
-    )
-
-    df["MACD"] = ema12 - ema26
-
-    df["SIGNAL"] = (
-        df["MACD"]
-        .ewm(
-            span=9,
-            adjust=False
-        )
-        .mean()
-    )
-
-    macd_value = round(
-        df.iloc[-1]["MACD"],
-        2
-    )
-
-    signal_value = round(
-        df.iloc[-1]["SIGNAL"],
-        2
-    )
-
-    foreign_total, trust_total = calc_institutional(
-        stock_id,
-        inst_df
-    )
+    k_value = safe_round(k.iloc[-1], 2)
+    d_value = safe_round(d.iloc[-1], 2)
+    macd_value = safe_round(macd.iloc[-1], 2)
+    signal_value = safe_round(signal.iloc[-1], 2)
 
     ai_score = 0
 
@@ -451,12 +253,6 @@ def analyze_stock(
     if k_value > d_value:
         ai_score += 1
 
-    if foreign_total > 0:
-        ai_score += 2
-
-    if trust_total > 0:
-        ai_score += 1
-
     if rr >= 2:
         ai_score += 2
 
@@ -466,183 +262,164 @@ def analyze_stock(
     if distance_high < 2:
         ai_score -= 1
 
+    if trading_value >= 30:
+        ai_score += 2
+
+    elif trading_value >= 10:
+        ai_score += 1
+
     quality = "偏弱"
 
     if ai_score >= 10:
-
         quality = "熱門強勢"
 
     elif ai_score >= 7:
-
         quality = "可觀察"
 
     elif ai_score >= 4:
-
         quality = "普通"
 
-    theme = get_theme(
-        stock_id,
-        industry
-    )
+    theme = normalize_theme(stock_id, industry)
 
     return {
-
         "股票": stock_id,
-
         "名稱": stock_name,
-
+        "市場": market,
         "族群": theme,
-
-        "日期": end_date,
-
+        "日期": str(df.index[-1].date()),
         "收盤價": close_price,
-
         "MA5": ma5,
-
         "EMA20": ema20,
-
         "KD-K": k_value,
-
         "KD-D": d_value,
-
         "MACD": macd_value,
-
         "SIGNAL": signal_value,
-
         "成交量": volume,
-
         "量比": volume_ratio,
-
         "成交值(億)": trading_value,
-
         "60日高點": resistance,
-
         "20日支撐": support,
-
         "距離前高%": distance_high,
-
         "RR": rr,
-
-        "外資": foreign_total,
-
-        "投信": trust_total,
-
         "AI分數": ai_score,
-
         "交易品質": quality,
     }
 
 
-def main():
+# =========================
+# 批次抓 yfinance
+# =========================
 
-    end_date = get_valid_end_date()
-
-    start_date = (
-        datetime.strptime(
-            end_date,
-            "%Y-%m-%d"
+def download_batch(tickers):
+    try:
+        data = yf.download(
+            tickers=tickers,
+            period=PERIOD,
+            interval=INTERVAL,
+            group_by="ticker",
+            auto_adjust=False,
+            threads=True,
+            progress=False
         )
-        - timedelta(days=180)
-    ).strftime("%Y-%m-%d")
 
-    print("DATA_DATE", end_date)
+        return data
 
-    stock_info = get_stock_list()
+    except Exception:
+        return pd.DataFrame()
 
-    print("STOCK_COUNT", len(stock_info))
 
-    inst_df = get_institutional_data(
-        end_date
-    )
+def extract_single_df(batch_data, ticker):
+    if batch_data.empty:
+        return pd.DataFrame()
 
-    all_data = []
+    if isinstance(batch_data.columns, pd.MultiIndex):
+        if ticker not in batch_data.columns.get_level_values(0):
+            return pd.DataFrame()
 
-    for idx, row in stock_info.iterrows():
+        df = batch_data[ticker].copy()
 
-        stock_id = row["stock_id"]
+    else:
+        df = batch_data.copy()
 
-        stock_name = row["stock_name"]
+    needed = ["Open", "High", "Low", "Close", "Volume"]
 
-        industry = row["industry_category"]
+    for col in needed:
+        if col not in df.columns:
+            return pd.DataFrame()
 
-        try:
+    return df[needed].dropna()
 
-            df_stock = api_get({
 
-                "dataset": "TaiwanStockPrice",
+# =========================
+# 主程式
+# =========================
 
-                "data_id": stock_id,
+def main():
+    print("START")
 
-                "start_date": start_date,
+    stock_list = get_stock_list()
 
-                "end_date": end_date
-            })
+    print("STOCK_COUNT", len(stock_list))
 
-            result = analyze_stock(
+    if stock_list.empty:
+        print("NO_STOCK_LIST")
+        return
 
-                stock_id=stock_id,
+    results = []
 
-                stock_name=stock_name,
+    total = len(stock_list)
 
-                industry=industry,
+    for start in range(0, total, CHUNK_SIZE):
+        end = min(start + CHUNK_SIZE, total)
 
-                df=df_stock,
+        chunk = stock_list.iloc[start:end].copy()
+        tickers = chunk["yf_ticker"].tolist()
 
-                inst_df=inst_df,
+        print("PROGRESS", start, "/", total)
 
-                end_date=end_date
-            )
+        batch_data = download_batch(tickers)
 
-            if result is not None:
-                all_data.append(result)
+        for _, row in chunk.iterrows():
+            ticker = row["yf_ticker"]
 
-            if idx % 50 == 0:
-                print("PROGRESS", idx)
+            try:
+                df_price = extract_single_df(batch_data, ticker)
 
-            time.sleep(0.05)
+                result = analyze_stock(row, df_price)
 
-        except:
-            pass
+                if result is not None:
+                    results.append(result)
 
-    final_df = pd.DataFrame(all_data)
+            except Exception:
+                pass
+
+        time.sleep(SLEEP_SECONDS)
+
+    final_df = pd.DataFrame(results)
 
     if final_df.empty:
-
         print("NO_RESULT")
-
         return
 
     final_df = final_df.sort_values(
-
         by=[
             "AI分數",
             "成交值(億)",
             "量比"
         ],
-
         ascending=False
     )
 
-    final_df["熱門排行"] = range(
-        1,
-        len(final_df) + 1
-    )
+    final_df["熱門排行"] = range(1, len(final_df) + 1)
 
     final_df.to_csv(
-
-        "cache/latest.csv",
-
+        OUTPUT_PATH,
         index=False,
-
         encoding="utf-8-sig"
     )
 
     print("DONE")
-
-    print(
-        "RESULT_COUNT",
-        len(final_df)
-    )
+    print("RESULT_COUNT", len(final_df))
 
 
 if __name__ == "__main__":
