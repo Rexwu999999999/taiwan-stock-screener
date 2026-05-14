@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import time
 import os
 
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2h0IiwiZW1haWwiOiJyZXg5NTQzMEBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.vGuPWV1lZl_np1ZA1WuVDP9wEPVIQrzDkQ0GhBj4-KE"
+FINMIND_TOKEN = "你的token"
 
 headers = {
     "Authorization": f"Bearer {FINMIND_TOKEN}"
@@ -128,13 +128,46 @@ for stock_id in watchlist:
             2
         )
 
+        high_60 = df["close"].tail(60).max()
+
+        distance_high = round(
+            (
+                (high_60 - close_price)
+                / high_60
+            ) * 100,
+            2
+        )
+
         ai_score = 0
 
+        # 趨勢分
         if close_price > ma5:
             ai_score += 2
 
         if close_price > ema20:
             ai_score += 3
+
+        # 位置分
+        if distance_high < 3:
+            ai_score -= 3
+
+        elif distance_high < 8:
+            ai_score += 2
+
+        elif distance_high > 20:
+            ai_score -= 2
+
+        # 交易品質
+        quality = "普通"
+
+        if ai_score >= 6:
+            quality = "優"
+
+        elif ai_score >= 4:
+            quality = "可觀察"
+
+        else:
+            quality = "偏弱"
 
         result = {
 
@@ -151,8 +184,17 @@ for stock_id in watchlist:
             "成交量":
             int(latest["Trading_Volume"]),
 
+            "60日高點":
+            round(high_60, 2),
+
+            "距離前高%":
+            distance_high,
+
             "AI分數":
             ai_score,
+
+            "交易品質":
+            quality,
         }
 
         all_data.append(result)
