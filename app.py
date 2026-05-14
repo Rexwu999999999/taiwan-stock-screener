@@ -1,12 +1,11 @@
 # ========================================
 # app.py
-# 台股波段選股儀表板 完整整合版
+# 台股波段選股儀表板 最終修正版
 # ========================================
 
 import streamlit as st
 import requests
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 import re
 import plotly.graph_objects as go
@@ -93,24 +92,21 @@ min_score = st.sidebar.slider(
     "最低分數",
     0,
     15,
-    5,
-    key="min_score_slider"
+    5
 )
 
 max_week_gain = st.sidebar.slider(
     "本週漲幅上限 %",
     0,
     50,
-    25,
-    key="week_gain_slider"
+    25
 )
 
 max_ma5_bias = st.sidebar.slider(
     "MA5 乖離上限 %",
     0,
     30,
-    12,
-    key="ma5_bias_slider"
+    12
 )
 
 min_vol_ratio = st.sidebar.slider(
@@ -118,8 +114,7 @@ min_vol_ratio = st.sidebar.slider(
     0.0,
     5.0,
     0.5,
-    0.1,
-    key="vol_ratio_slider"
+    0.1
 )
 
 # ========================================
@@ -155,19 +150,6 @@ def get_valid_date(stock_id):
             return d
 
     return None
-
-# ========================================
-# 法人淨買超
-# ========================================
-
-def net_buy(data, name):
-
-    x = data[data["name"] == name]
-
-    if x.empty:
-        return 0
-
-    return (x["buy"] - x["sell"]).sum()
 
 # ========================================
 # 法人趨勢
@@ -387,7 +369,7 @@ def analyze(stock_id):
     )
 
     # ====================================
-    # 距離前高%
+    # 距離前高
     # ====================================
 
     distance_high = round(
@@ -420,30 +402,18 @@ def analyze(stock_id):
         "2376": "AI",
         "2382": "AI",
         "3017": "AI",
-        "3231": "AI",
-        "6669": "AI",
-        "3443": "AI",
 
         "3324": "CPO",
-        "4908": "CPO",
-        "4979": "CPO",
 
         "1519": "重電",
         "1503": "重電",
-        "1504": "重電",
-
-        "2603": "航運",
-        "2609": "航運",
-        "2615": "航運",
 
         "8110": "生技",
 
-        "4938": "散熱",
-        "3014": "散熱",
-
         "2454": "半導體",
         "2330": "半導體",
-        "2303": "半導體",
+
+        "4938": "散熱",
     }
 
     sector = sector_map.get(
@@ -563,7 +533,7 @@ def analyze(stock_id):
     )
 
     # ====================================
-    # 主升段
+    # 主升
     # ====================================
 
     main_uptrend = False
@@ -597,7 +567,6 @@ def analyze(stock_id):
     if (
         week_change > 15
         and latest["K"] > 85
-        and foreign_trend in ["連買", "偏多"]
     ):
         fake_strength = True
 
@@ -664,30 +633,69 @@ def analyze(stock_id):
         hot_score += 8
 
     # ====================================
-    # 訊號
+    # RR
+    # ====================================
+
+    stop_loss = round(
+        recent_5["min"].min(),
+        2
+    )
+
+    target_price = resistance
+
+    risk_amt = (
+        latest["close"]
+        - stop_loss
+    )
+
+    reward_amt = (
+        target_price
+        - latest["close"]
+    )
+
+    rr = 0
+
+    if risk_amt > 0:
+
+        rr = round(
+            reward_amt / risk_amt,
+            2
+        )
+
+    # ====================================
+    # 訊號（修正版）
     # ====================================
 
     signal = "WAIT"
 
+    # 真正適合進場
     if (
         score >= 10
         and healthy_pullback
+        and latest["K"] < 80
+        and week_change < 18
+        and bias_ma5 < 8
+        and rr >= 1.2
+        and distance_high > 5
     ):
         signal = "YES"
 
+    # 主流強勢但過熱
     elif (
-        score >= 7
-    ):
-        signal = "EARLY"
-
-    elif (
-        fake_strength
+        score >= 9
+        and (
+            latest["K"] >= 80
+            or week_change >= 18
+            or rr < 1
+            or distance_high <= 5
+        )
     ):
         signal = "HOT"
 
-    elif (
-        latest["close"] < latest["EMA20"]
-    ):
+    elif score >= 7:
+        signal = "EARLY"
+
+    elif latest["close"] < latest["EMA20"]:
         signal = "NO"
 
     # ====================================
@@ -727,44 +735,6 @@ def analyze(stock_id):
         f" ~ "
         f"{cost_zone_high}"
     )
-
-    # ====================================
-    # RR
-    # ====================================
-
-    stop_loss = round(
-        recent_5["min"].min(),
-        2
-    )
-
-    recent_high = (
-        df.tail(60)["max"]
-        .max()
-    )
-
-    target_price = round(
-        recent_high,
-        2
-    )
-
-    risk_amt = (
-        latest["close"]
-        - stop_loss
-    )
-
-    reward_amt = (
-        target_price
-        - latest["close"]
-    )
-
-    rr = 0
-
-    if risk_amt > 0:
-
-        rr = round(
-            reward_amt / risk_amt,
-            2
-        )
 
     # ====================================
     # return
@@ -1016,8 +986,14 @@ if not df_result.empty:
 壓力：
 {row['壓力']}
 
+RR：
+{row['RR']}
+
 分數拆解：
 {row['分數拆解']}
+
+排除原因：
+{row['排除原因']}
 """
             )
 
@@ -1082,5 +1058,17 @@ if not df_result.empty:
 
 排除原因：
 {stock_row['排除原因']}
+
+主力成本區：
+{stock_row['主力成本區']}
+
+停損價：
+{stock_row['停損價']}
+
+目標價：
+{stock_row['目標價']}
+
+RR：
+{stock_row['RR']}
 """
         )
