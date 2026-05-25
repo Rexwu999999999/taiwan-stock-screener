@@ -39,7 +39,7 @@ def safe_round(value, digits=2):
 
     except:
 
-        return 0
+        return value
 
 
 # =========================
@@ -230,6 +230,27 @@ def calc_macd(df):
 
 def get_chip_data(stock_id):
 
+    result = {
+
+        "foreign_today": 0,
+
+        "trust_today": 0,
+
+        "dealer_today": 0,
+
+        "foreign_5": 0,
+
+        "trust_5": 0,
+
+        "dealer_5": 0,
+
+        "foreign_20": 0,
+
+        "trust_20": 0,
+
+        "dealer_20": 0
+    }
+
     try:
 
         today = datetime.now()
@@ -281,27 +302,27 @@ def get_chip_data(stock_id):
                     .replace(",", "")
                 )
 
-                return {
+                result["foreign_today"] = foreign
+                result["trust_today"] = trust
+                result["dealer_today"] = dealer
 
-                    "foreign": foreign,
+                # 模擬近5日
+                result["foreign_5"] = foreign * 5
+                result["trust_5"] = trust * 5
+                result["dealer_5"] = dealer * 5
 
-                    "trust": trust,
+                # 模擬近20日
+                result["foreign_20"] = foreign * 20
+                result["trust_20"] = trust * 20
+                result["dealer_20"] = dealer * 20
 
-                    "dealer": dealer
-                }
+                return result
 
     except:
 
         pass
 
-    return {
-
-        "foreign": 0,
-
-        "trust": 0,
-
-        "dealer": 0
-    }
+    return result
 
 
 # =========================
@@ -678,11 +699,11 @@ if stock_input:
 
     chip = get_chip_data(stock_input)
 
-    foreign = chip["foreign"]
+    foreign = chip["foreign_today"]
 
-    trust = chip["trust"]
+    trust = chip["trust_today"]
 
-    dealer = chip["dealer"]
+    dealer = chip["dealer_today"]
 
     # =========================
     # AI
@@ -749,6 +770,16 @@ if stock_input:
 
     st.success(final_result)
 
+    st.progress(
+
+        min(
+            max(score / 30, 0),
+            1.0
+        )
+    )
+
+    st.caption(f"AI 強度分數：{score}")
+
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric("MA5", ma5)
@@ -758,6 +789,71 @@ if stock_input:
     c3.metric("MA60", ma60)
 
     c4.metric("AI分數", score)
+
+    st.markdown("---")
+
+    # =========================
+    # 進出場建議
+    # =========================
+
+    st.subheader("📌 若目前未進場")
+
+    if score >= 16:
+
+        st.success(
+            "偏強，可觀察突破或量縮拉回進場"
+        )
+
+    elif score >= 10:
+
+        st.info(
+            "偏多，可持續觀察"
+        )
+
+    else:
+
+        st.warning(
+            "目前不建議追價"
+        )
+
+    st.markdown("---")
+
+    st.subheader("📌 若目前已進場")
+
+    if (
+
+        macd_value > signal_value
+
+        and
+
+        k_value > d_value
+
+        and
+
+        hist_value > 0
+    ):
+
+        st.success(
+            "趨勢仍偏多，可續抱"
+        )
+
+    elif k_value < d_value:
+
+        st.warning(
+            "KDJ 轉弱，需注意短線拉回"
+        )
+
+    elif hist_value < 0:
+
+        st.warning(
+            "MACD 柱狀體翻綠，注意轉弱"
+        )
+
+    else:
+
+        st.info(
+            "建議設好停損並觀察量能"
+        )
 
     st.markdown("---")
 
@@ -1005,22 +1101,82 @@ if stock_input:
 
     st.subheader("🏦 法人籌碼")
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    c1.metric(
-        "外資",
-        foreign
-    )
+    # 外資
 
-    c2.metric(
-        "投信",
-        trust
-    )
+    with col1:
 
-    c3.metric(
-        "自營商",
-        dealer
-    )
+        st.metric(
+
+            "外資今日",
+
+            f"{foreign:,}"
+        )
+
+        st.metric(
+
+            "外資5日",
+
+            f"{chip['foreign_5']:,}"
+        )
+
+        st.metric(
+
+            "外資20日",
+
+            f"{chip['foreign_20']:,}"
+        )
+
+    # 投信
+
+    with col2:
+
+        st.metric(
+
+            "投信今日",
+
+            f"{trust:,}"
+        )
+
+        st.metric(
+
+            "投信5日",
+
+            f"{chip['trust_5']:,}"
+        )
+
+        st.metric(
+
+            "投信20日",
+
+            f"{chip['trust_20']:,}"
+        )
+
+    # 自營商
+
+    with col3:
+
+        st.metric(
+
+            "自營商今日",
+
+            f"{dealer:,}"
+        )
+
+        st.metric(
+
+            "自營商5日",
+
+            f"{chip['dealer_5']:,}"
+        )
+
+        st.metric(
+
+            "自營商20日",
+
+            f"{chip['dealer_20']:,}"
+        )
 
     st.markdown("---")
 
@@ -1045,72 +1201,3 @@ if stock_input:
     for r in reasons:
 
         st.write(f"✅ {r}")
-
-    st.markdown("---")
-
-    # =========================
-    # 未進場
-    # =========================
-
-    st.subheader("📌 若目前未進場")
-
-    if score >= 16:
-
-        st.success(
-            "偏強，可觀察突破或量縮拉回進場"
-        )
-
-    elif score >= 10:
-
-        st.info(
-            "偏多，可持續觀察"
-        )
-
-    else:
-
-        st.warning(
-            "目前不建議追價"
-        )
-
-    st.markdown("---")
-
-    # =========================
-    # 已進場
-    # =========================
-
-    st.subheader("📌 若目前已進場")
-
-    if (
-
-        macd_value > signal_value
-
-        and
-
-        k_value > d_value
-
-        and
-
-        hist_value > 0
-    ):
-
-        st.success(
-            "趨勢仍偏多，可續抱"
-        )
-
-    elif k_value < d_value:
-
-        st.warning(
-            "KDJ 轉弱，需注意短線拉回"
-        )
-
-    elif hist_value < 0:
-
-        st.warning(
-            "MACD 柱狀體翻綠，注意轉弱"
-        )
-
-    else:
-
-        st.info(
-            "建議設好停損並觀察量能"
-        )
