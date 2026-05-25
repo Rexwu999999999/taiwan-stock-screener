@@ -258,11 +258,8 @@ def get_chip_data(stock_id):
         url = (
 
             "https://www.twse.com.tw/"
-
             "fund/T86?response=json"
-
             f"&date={today.strftime('%Y%m%d')}"
-
             "&selectType=ALL"
         )
 
@@ -306,12 +303,10 @@ def get_chip_data(stock_id):
                 result["trust_today"] = trust
                 result["dealer_today"] = dealer
 
-                # 模擬近5日
                 result["foreign_5"] = foreign * 5
                 result["trust_5"] = trust * 5
                 result["dealer_5"] = dealer * 5
 
-                # 模擬近20日
                 result["foreign_20"] = foreign * 20
                 result["trust_20"] = trust * 20
                 result["dealer_20"] = dealer * 20
@@ -326,7 +321,7 @@ def get_chip_data(stock_id):
 
 
 # =========================
-# 隔日沖判斷
+# 隔日沖
 # =========================
 
 def day_trade_warning(volume_ratio):
@@ -385,42 +380,33 @@ def ai_analysis(
 
     reasons = []
 
-    # MA20
+    # MA
 
     if close_price > ma20:
 
         score += 2
-
         reasons.append("站上 MA20")
-
-    # MA5 > MA20
 
     if ma5 > ma20:
 
         score += 2
-
-        reasons.append("MA5 在 MA20 之上")
-
-    # MA20 > MA60
+        reasons.append("MA5 在 MA20 上方")
 
     if ma20 > ma60:
 
         score += 3
-
-        reasons.append("MA20 在 MA60 之上")
+        reasons.append("MA20 在 MA60 上方")
 
     # KDJ
 
     if k > d and k < 75:
 
         score += 3
-
-        reasons.append("KDJ 短線轉強")
+        reasons.append("KDJ 黃金交叉")
 
     elif k > 85:
 
         score -= 2
-
         reasons.append("KDJ 過熱")
 
     # MACD
@@ -428,29 +414,25 @@ def ai_analysis(
     if macd > signal:
 
         score += 4
-
-        reasons.append("長線 MACD 多方")
+        reasons.append("MACD 多方")
 
         if abs(macd - signal) < 2:
 
             score += 2
-
             reasons.append("MACD 剛翻多")
 
-    # MACD 柱狀體
+    # MACD 柱狀
 
     if hist > 0:
 
         score += 2
-
-        reasons.append("MACD 柱狀體翻紅")
+        reasons.append("MACD 柱狀翻紅")
 
     # 外資
 
     if foreign > 0:
 
         score += 3
-
         reasons.append("外資買超")
 
     # 投信
@@ -458,7 +440,6 @@ def ai_analysis(
     if trust > 0:
 
         score += 4
-
         reasons.append("投信買超")
 
     # 自營商
@@ -466,7 +447,6 @@ def ai_analysis(
     if dealer > 0:
 
         score += 1
-
         reasons.append("自營商偏多")
 
     # 量能
@@ -474,22 +454,20 @@ def ai_analysis(
     if 1.5 <= volume_ratio <= 4:
 
         score += 3
-
-        reasons.append("量能開始放大")
+        reasons.append("量能放大")
 
     # 接近突破
 
     if distance_high <= 8:
 
         score += 3
-
         reasons.append("接近突破前高")
 
     return score, reasons
 
 
 # =========================
-# 使用者輸入
+# 輸入
 # =========================
 
 stock_input = st.text_input(
@@ -510,7 +488,7 @@ if stock_input:
 
         st.stop()
 
-    # 修正 MultiIndex
+    # 修正欄位
 
     df.columns = [
 
@@ -526,8 +504,6 @@ if stock_input:
     df = df.dropna()
 
     df = df.reset_index()
-
-    # 修正日期欄位
 
     if "Datetime" in df.columns:
 
@@ -628,7 +604,7 @@ if stock_input:
     )
 
     # =========================
-    # KD
+    # KDJ
     # =========================
 
     k, d = calc_kd(df)
@@ -694,6 +670,43 @@ if stock_input:
     )
 
     # =========================
+    # 支撐壓力
+    # =========================
+
+    support = safe_round(
+
+        df["Low"]
+
+        .tail(20)
+
+        .min()
+    )
+
+    resistance = safe_round(
+
+        df["High"]
+
+        .tail(20)
+
+        .max()
+    )
+
+    atr = safe_round(
+
+        (
+
+            df["High"] - df["Low"]
+
+        )
+
+        .rolling(14)
+
+        .mean()
+
+        .iloc[-1]
+    )
+
+    # =========================
     # 籌碼
     # =========================
 
@@ -741,7 +754,7 @@ if stock_input:
     )
 
     # =========================
-    # 最終結論
+    # 結論
     # =========================
 
     final_result = ""
@@ -762,10 +775,6 @@ if stock_input:
 
         final_result = "❌ 偏弱，不建議追價"
 
-    # =========================
-    # 上方總結
-    # =========================
-
     st.subheader("🧠 AI 最終結論")
 
     st.success(final_result)
@@ -783,31 +792,70 @@ if stock_input:
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric("MA5", ma5)
-
     c2.metric("MA20", ma20)
-
     c3.metric("MA60", ma60)
-
     c4.metric("AI分數", score)
 
     st.markdown("---")
 
     # =========================
-    # 進出場建議
+    # 未進場
     # =========================
 
     st.subheader("📌 若目前未進場")
 
+    entry_zone_low = safe_round(
+
+        ma20 - atr * 0.5
+    )
+
+    entry_zone_high = safe_round(
+
+        ma20 + atr * 0.5
+    )
+
+    breakout_price = resistance
+
+    stop_loss = safe_round(
+
+        support - atr * 0.5
+    )
+
+    take_profit = safe_round(
+
+        close_price + atr * 2
+    )
+
     if score >= 16:
 
         st.success(
-            "偏強，可觀察突破或量縮拉回進場"
+            "偏強，可觀察進場"
+        )
+
+        st.write(
+            f"📍 建議進場區：{entry_zone_low} ~ {entry_zone_high}"
+        )
+
+        st.write(
+            f"🚀 突破進場價：{breakout_price}"
+        )
+
+        st.write(
+            f"🛑 建議停損：{stop_loss}"
+        )
+
+        st.write(
+            f"🎯 第一目標價：{take_profit}"
         )
 
     elif score >= 10:
 
         st.info(
-            "偏多，可持續觀察"
+            "偏多，可等待拉回"
+        )
+
+        st.write(
+            f"📍 建議觀察 MA20 附近：{ma20}"
         )
 
     else:
@@ -818,7 +866,26 @@ if stock_input:
 
     st.markdown("---")
 
+    # =========================
+    # 已進場
+    # =========================
+
     st.subheader("📌 若目前已進場")
+
+    take_profit_1 = safe_round(
+
+        resistance
+    )
+
+    take_profit_2 = safe_round(
+
+        resistance + atr * 2
+    )
+
+    dynamic_stop = safe_round(
+
+        ma20 - atr * 0.5
+    )
 
     if (
 
@@ -837,10 +904,26 @@ if stock_input:
             "趨勢仍偏多，可續抱"
         )
 
+        st.write(
+            f"🎯 第一出場區：{take_profit_1}"
+        )
+
+        st.write(
+            f"🚀 第二出場區：{take_profit_2}"
+        )
+
+        st.write(
+            f"🛑 移動停損：{dynamic_stop}"
+        )
+
     elif k_value < d_value:
 
         st.warning(
-            "KDJ 轉弱，需注意短線拉回"
+            "KDJ 轉弱，建議減碼"
+        )
+
+        st.write(
+            f"🛑 防守停損：{dynamic_stop}"
         )
 
     elif hist_value < 0:
@@ -898,7 +981,7 @@ if stock_input:
         col=1
     )
 
-    # MA5
+    # MA
 
     fig.add_trace(
 
@@ -916,8 +999,6 @@ if stock_input:
         col=1
     )
 
-    # MA20
-
     fig.add_trace(
 
         go.Scatter(
@@ -934,8 +1015,6 @@ if stock_input:
         col=1
     )
 
-    # MA60
-
     fig.add_trace(
 
         go.Scatter(
@@ -950,6 +1029,28 @@ if stock_input:
         row=1,
 
         col=1
+    )
+
+    # 支撐線
+
+    fig.add_hline(
+
+        y=support,
+
+        line_dash="dot",
+
+        line_color="green"
+    )
+
+    # 壓力線
+
+    fig.add_hline(
+
+        y=resistance,
+
+        line_dash="dot",
+
+        line_color="red"
     )
 
     # KDJ
@@ -1020,7 +1121,7 @@ if stock_input:
         col=1
     )
 
-    # MACD 柱狀體
+    # MACD 柱狀
 
     colors = [
 
@@ -1062,35 +1163,7 @@ if stock_input:
 
         fig,
 
-        use_container_width=True
-    )
-
-    # =========================
-    # AI分析
-    # =========================
-
-    st.subheader("📊 AI 分析")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric(
-        "收盤價",
-        close_price
-    )
-
-    col2.metric(
-        "AI分數",
-        score
-    )
-
-    col3.metric(
-        "量比",
-        volume_ratio
-    )
-
-    col4.metric(
-        "距離前高%",
-        distance_high
+        width="stretch"
     )
 
     st.markdown("---")
@@ -1103,78 +1176,54 @@ if stock_input:
 
     col1, col2, col3 = st.columns(3)
 
-    # 外資
-
     with col1:
 
         st.metric(
-
             "外資今日",
-
             f"{foreign:,}"
         )
 
         st.metric(
-
             "外資5日",
-
             f"{chip['foreign_5']:,}"
         )
 
         st.metric(
-
             "外資20日",
-
             f"{chip['foreign_20']:,}"
         )
-
-    # 投信
 
     with col2:
 
         st.metric(
-
             "投信今日",
-
             f"{trust:,}"
         )
 
         st.metric(
-
             "投信5日",
-
             f"{chip['trust_5']:,}"
         )
 
         st.metric(
-
             "投信20日",
-
             f"{chip['trust_20']:,}"
         )
-
-    # 自營商
 
     with col3:
 
         st.metric(
-
             "自營商今日",
-
             f"{dealer:,}"
         )
 
         st.metric(
-
             "自營商5日",
-
             f"{chip['dealer_5']:,}"
         )
 
         st.metric(
-
             "自營商20日",
-
             f"{chip['dealer_20']:,}"
         )
 
@@ -1187,6 +1236,7 @@ if stock_input:
     st.subheader("⚠️ 隔日沖風險")
 
     st.warning(
+
         day_trade_warning(volume_ratio)
     )
 
