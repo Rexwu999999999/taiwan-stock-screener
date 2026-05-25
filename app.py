@@ -967,3 +967,361 @@ if stock_input:
         )
 
     st.markdown("---")
+
+    # =========================
+    # 圖表
+    # =========================
+
+    fig = make_subplots(
+
+        rows=3,
+
+        cols=1,
+
+        shared_xaxes=True,
+
+        vertical_spacing=0.04,
+
+        row_heights=[0.6, 0.2, 0.2]
+    )
+
+    # K線
+
+    fig.add_trace(
+
+        go.Candlestick(
+
+            x=df["Date"],
+
+            open=df["Open"],
+
+            high=df["High"],
+
+            low=df["Low"],
+
+            close=df["Close"],
+
+            name="K線"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    # MA
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=df["MA5"],
+
+            name="MA5"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=df["MA20"],
+
+            name="MA20"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=df["MA60"],
+
+            name="MA60"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    # 支撐線
+
+    fig.add_hline(
+
+        y=support,
+
+        line_dash="dot",
+
+        line_color="green"
+    )
+
+    # 壓力線
+
+    fig.add_hline(
+
+        y=resistance,
+
+        line_dash="dot",
+
+        line_color="red"
+    )
+
+    # KDJ
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=k,
+
+            name="K"
+        ),
+
+        row=2,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=d,
+
+            name="D"
+        ),
+
+        row=2,
+
+        col=1
+    )
+
+    # MACD 線
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=macd,
+
+            name="MACD"
+        ),
+
+        row=3,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=signal,
+
+            name="SIGNAL"
+        ),
+
+        row=3,
+
+        col=1
+    )
+
+    # MACD 柱狀
+
+    colors = [
+
+        "red"
+
+        if x >= 0
+
+        else "green"
+
+        for x in hist
+    ]
+
+    fig.add_trace(
+
+        go.Bar(
+
+            x=df["Date"],
+
+            y=hist,
+
+            marker_color=colors,
+
+            name="HIST"
+        ),
+
+        row=3,
+
+        col=1
+    )
+
+    fig.update_layout(
+
+        height=950,
+
+        xaxis_rangeslider_visible=False
+    )
+
+    st.plotly_chart(
+
+        fig,
+
+        width="stretch"
+    )
+
+    st.markdown("---")
+
+    # =========================
+    # 技術指標詳細
+    # =========================
+
+    st.subheader("📊 技術指標")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "K值",
+            k_value
+        )
+
+        st.metric(
+            "D值",
+            d_value
+        )
+
+    with col2:
+
+        st.metric(
+            "MACD",
+            macd_value
+        )
+
+        st.metric(
+            "SIGNAL",
+            signal_value
+        )
+
+    with col3:
+
+        st.metric(
+            "MACD HIST",
+            hist_value
+        )
+
+        st.metric(
+            "量比",
+            volume_ratio
+        )
+
+    st.markdown("---")
+
+    # =========================
+    # 法人籌碼
+    # =========================
+
+    st.subheader("🏦 法人籌碼")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "外資今日",
+            f"{foreign:,}"
+        )
+
+        st.metric(
+            "外資5日",
+            f"{chip['foreign_5']:,}"
+        )
+
+        st.metric(
+            "外資20日",
+            f"{chip['foreign_20']:,}"
+        )
+
+    with col2:
+
+        st.metric(
+            "投信今日",
+            f"{trust:,}"
+        )
+
+        st.metric(
+            "投信5日",
+            f"{chip['trust_5']:,}"
+        )
+
+        st.metric(
+            "投信20日",
+            f"{chip['trust_20']:,}"
+        )
+
+    with col3:
+
+        st.metric(
+            "自營商今日",
+            f"{dealer:,}"
+        )
+
+        st.metric(
+            "自營商5日",
+            f"{chip['dealer_5']:,}"
+        )
+
+        st.metric(
+            "自營商20日",
+            f"{chip['dealer_20']:,}"
+        )
+
+    st.markdown("---")
+
+    # =========================
+    # 隔日沖
+    # =========================
+
+    st.subheader("⚠️ 隔日沖風險")
+
+    st.warning(
+
+        day_trade_warning(volume_ratio)
+    )
+
+    st.markdown("---")
+
+    # =========================
+    # AI判斷
+    # =========================
+
+    st.subheader("🧠 AI 判斷")
+
+    for r in reasons:
+
+        st.write(f"✅ {r}")
