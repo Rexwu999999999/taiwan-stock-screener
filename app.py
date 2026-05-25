@@ -1,343 +1,761 @@
-import streamlit as st
+import math
+import requests
 import pandas as pd
+import yfinance as yf
+import streamlit as st
+
+import plotly.graph_objects as go
+
+from plotly.subplots import make_subplots
+
+from datetime import datetime
+
+
+# =========================
+# 基本設定
+# =========================
 
 st.set_page_config(
-    page_title="台股潛力股 AI 系統",
+
+    page_title="台股單股 AI 分析",
+
     layout="wide"
 )
 
-st.title("🚀 台股潛力股 AI 系統")
+st.title("📈 台股單股 AI 分析系統")
+
 
 # =========================
-# 讀取資料
+# 工具
 # =========================
 
-try:
+def safe_round(value, digits=2):
 
-    df = pd.read_csv(
-        "cache/latest.csv"
+    try:
+
+        if pd.isna(value):
+            return 0
+
+        if math.isinf(value):
+            return 0
+
+        return round(
+            float(value),
+            digits
+        )
+
+    except:
+
+        return 0
+
+
+# =========================
+# 股票代碼轉換
+# =========================
+
+def convert_ticker(stock_input):
+
+    stock_input = str(
+        stock_input
+    ).strip()
+
+    if stock_input.isdigit():
+
+        tw = f"{stock_input}.TW"
+
+        two = f"{stock_input}.TWO"
+
+        return tw, two
+
+    return stock_input, stock_input
+
+
+# =========================
+# 下載資料
+# =========================
+
+def download_stock_data(stock_input):
+
+    tw, two = convert_ticker(
+        stock_input
     )
 
-except:
+    df = yf.download(
 
-    st.error("讀取資料失敗")
+        tw,
 
-    st.stop()
+        period="9mo",
 
-st.success("資料載入成功")
+        interval="1d",
 
+        auto_adjust=False,
 
-# =========================
-# 側邊欄
-# =========================
+        progress=False
+    )
 
-st.sidebar.header("篩選器")
+    if df.empty:
 
-themes = ["全部"] + sorted(
-    df["族群"]
-    .dropna()
-    .unique()
-    .tolist()
-)
+        df = yf.download(
 
-selected_theme = st.sidebar.selectbox(
-    "族群",
-    themes
-)
+            two,
 
-min_ai = st.sidebar.slider(
-    "最低 AI 分數",
-    int(df["AI分數"].min()),
-    int(df["AI分數"].max()),
-    20
-)
+            period="9mo",
 
-min_value = st.sidebar.slider(
-    "最低成交值(億)",
-    0,
-    int(df["成交值(億)"].max()),
-    3
-)
+            interval="1d",
 
-min_volume_ratio = st.sidebar.slider(
-    "最低量比",
-    0.0,
-    float(df["量比"].max()),
-    1.0
-)
+            auto_adjust=False,
 
-quality_options = [
+            progress=False
+        )
 
-    "全部",
+        ticker = two
 
-    "提前發動",
+    else:
 
-    "潛力強勢",
+        ticker = tw
 
-    "可觀察",
-
-    "普通"
-]
-
-selected_quality = st.sidebar.selectbox(
-    "交易品質",
-    quality_options
-)
+    return df, ticker
 
 
 # =========================
-# 篩選
+# KD
 # =========================
 
-filtered_df = df.copy()
+def calc_kd(df):
 
-if selected_theme != "全部":
+    low9 = df["Low"].rolling(9).min()
 
-    filtered_df = filtered_df[
-        filtered_df["族群"] == selected_theme
-    ]
+    high9 = df["High"].rolling(9).max()
 
-if selected_quality != "全部":
+    rsv = (
+        (
+            df["Close"] - low9
+        ) /
+        (
+            high9 - low9
+        )
+    ) * 100
 
-    filtered_df = filtered_df[
-        filtered_df["交易品質"] == selected_quality
-    ]
+    k = (
+        rsv
+        .ewm(
+            com=2,
+            adjust=False
+        )
+        .mean()
+    )
 
-filtered_df = filtered_df[
-    filtered_df["AI分數"] >= min_ai
-]
+    d = (
+        k
+        .ewm(
+            com=2,
+            adjust=False
+        )
+        .mean()
+    )
 
-filtered_df = filtered_df[
-    filtered_df["成交值(億)"] >= min_value
-]
-
-filtered_df = filtered_df[
-    filtered_df["量比"] >= min_volume_ratio
-]
+    return k, d
 
 
 # =========================
-# 排序
+# MACD
 # =========================
 
-filtered_df = filtered_df.sort_values(
+def calc_macd(df):
 
-    by=[
-        "AI分數",
+    ema12 = (
+        df["Close"]
+        .ewm(
+            span=12,
+            adjust=False
+        )
+        .mean()
+    )
+
+    ema26 = (
+        df["Close"]
+        .ewm(
+            span=26,
+            adjust=False
+        )
+        .mean()
+    )
+
+    macd = ema12 - ema26
+
+    signal = (
+        macd
+        .ewm(
+            span=9,
+            adjust=False
+        )
+        .mean()
+    )
+
+    hist = macd - signal
+
+    return macd, signal, hist
+
+
+# =========================
+# 法人資料
+# =========================
+
+def get_chip_data(stock_id):
+
+    try:
+
+        today = datetime.now()
+
+        url = (
+            "https://www.twse.com.tw/"
+            "fund/T86?response=json"
+            f"&date={today.strftime('%Y%m%d')}"
+            "&selectType=ALL"
+        )
+
+        r = requests.get(
+            url,
+            timeout=20
+        )
+
+        data = r.json()
+
+        rows = data.get("data", [])
+
+        if len(rows) == 0:
+
+            return {
+
+                "foreign": 0,
+                "trust": 0,
+                "dealer": 0
+            }
+
+        for row in rows:
+
+            if str(row[0]) == str(stock_id):
+
+                foreign = int(
+                    row[4]
+                    .replace(",", "")
+                )
+
+                trust = int(
+                    row[10]
+                    .replace(",", "")
+                )
+
+                dealer = int(
+                    row[11]
+                    .replace(",", "")
+                )
+
+                return {
+
+                    "foreign": foreign,
+
+                    "trust": trust,
+
+                    "dealer": dealer
+                }
+
+    except:
+
+        pass
+
+    return {
+
+        "foreign": 0,
+
+        "trust": 0,
+
+        "dealer": 0
+    }
+
+
+# =========================
+# 隔日沖判斷
+# =========================
+
+def day_trade_warning(volume_ratio):
+
+    if volume_ratio >= 5:
+
+        return "⚠️ 高度疑似隔日沖"
+
+    elif volume_ratio >= 3:
+
+        return "⚠️ 有隔日沖風險"
+
+    elif volume_ratio >= 2:
+
+        return "中等隔日沖風險"
+
+    return "相對正常"
+
+
+# =========================
+# AI 分析
+# =========================
+
+def ai_analysis(
+
+    close_price,
+
+    ma20,
+
+    k,
+
+    d,
+
+    macd,
+
+    signal,
+
+    foreign,
+
+    trust,
+
+    dealer,
+
+    volume_ratio,
+
+    distance_high
+):
+
+    score = 0
+
+    reasons = []
+
+    # EMA20
+    if close_price > ma20:
+
+        score += 2
+
+        reasons.append("站上 EMA20")
+
+    # KD
+    if k > d and k < 80:
+
+        score += 2
+
+        reasons.append("KD 黃金交叉")
+
+    # MACD
+    if macd > signal:
+
+        score += 3
+
+        reasons.append("MACD 多方")
+
+    # 外資
+    if foreign > 0:
+
+        score += 3
+
+        reasons.append("外資買超")
+
+    # 投信
+    if trust > 0:
+
+        score += 4
+
+        reasons.append("投信買超")
+
+    # 自營商
+    if dealer > 0:
+
+        score += 1
+
+        reasons.append("自營商偏多")
+
+    # 爆量
+    if 1.5 <= volume_ratio <= 4:
+
+        score += 3
+
+        reasons.append("量能開始放大")
+
+    # 接近突破
+    if distance_high <= 8:
+
+        score += 3
+
+        reasons.append("接近突破前高")
+
+    return score, reasons
+
+
+# =========================
+# 使用者輸入
+# =========================
+
+stock_input = st.text_input(
+    "輸入股票代碼",
+    "2330"
+)
+
+
+if stock_input:
+
+    df, ticker = download_stock_data(
+        stock_input
+    )
+
+    if df.empty:
+
+        st.error("找不到股票")
+
+        st.stop()
+
+    df = df.dropna()
+
+    latest = df.iloc[-1]
+
+    close_price = safe_round(
+        latest["Close"]
+    )
+
+    volume = int(
+        latest["Volume"]
+    )
+
+    # EMA20
+    df["EMA20"] = (
+        df["Close"]
+        .ewm(
+            span=20,
+            adjust=False
+        )
+        .mean()
+    )
+
+    ema20 = safe_round(
+        df.iloc[-1]["EMA20"]
+    )
+
+    # KD
+    k, d = calc_kd(df)
+
+    k_value = safe_round(
+        k.iloc[-1]
+    )
+
+    d_value = safe_round(
+        d.iloc[-1]
+    )
+
+    # MACD
+    macd, signal, hist = calc_macd(df)
+
+    macd_value = safe_round(
+        macd.iloc[-1]
+    )
+
+    signal_value = safe_round(
+        signal.iloc[-1]
+    )
+
+    # 量比
+    avg_volume_20 = (
+        df["Volume"]
+        .tail(20)
+        .mean()
+    )
+
+    volume_ratio = safe_round(
+        volume / avg_volume_20
+    )
+
+    # 前高
+    high_60 = (
+        df["Close"]
+        .tail(60)
+        .max()
+    )
+
+    distance_high = safe_round(
+        (
+            (
+                high_60 - close_price
+            ) / high_60
+        ) * 100
+    )
+
+    # 籌碼
+    stock_id = stock_input
+
+    chip = get_chip_data(stock_id)
+
+    foreign = chip["foreign"]
+
+    trust = chip["trust"]
+
+    dealer = chip["dealer"]
+
+    # AI
+    score, reasons = ai_analysis(
+
+        close_price,
+
+        ema20,
+
+        k_value,
+
+        d_value,
+
+        macd_value,
+
+        signal_value,
+
+        foreign,
+
+        trust,
+
+        dealer,
+
+        volume_ratio,
+
+        distance_high
+    )
+
+    # =========================
+    # 圖表
+    # =========================
+
+    fig = make_subplots(
+
+        rows=3,
+
+        cols=1,
+
+        shared_xaxes=True,
+
+        vertical_spacing=0.05,
+
+        row_heights=[0.6, 0.2, 0.2]
+    )
+
+    # K線
+    fig.add_trace(
+
+        go.Candlestick(
+
+            x=df.index,
+
+            open=df["Open"],
+
+            high=df["High"],
+
+            low=df["Low"],
+
+            close=df["Close"],
+
+            name="K線"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index,
+
+            y=df["EMA20"],
+
+            name="EMA20"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    # KD
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index,
+
+            y=k,
+
+            name="K"
+        ),
+
+        row=2,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index,
+
+            y=d,
+
+            name="D"
+        ),
+
+        row=2,
+
+        col=1
+    )
+
+    # MACD
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index,
+
+            y=macd,
+
+            name="MACD"
+        ),
+
+        row=3,
+
+        col=1
+    )
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index,
+
+            y=signal,
+
+            name="SIGNAL"
+        ),
+
+        row=3,
+
+        col=1
+    )
+
+    fig.update_layout(
+
+        height=900,
+
+        xaxis_rangeslider_visible=False
+    )
+
+    st.plotly_chart(
+
+        fig,
+
+        use_container_width=True
+    )
+
+    # =========================
+    # 分析
+    # =========================
+
+    st.subheader("📊 AI 分析")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "收盤價",
+        close_price
+    )
+
+    col2.metric(
+        "AI 分數",
+        score
+    )
+
+    col3.metric(
         "量比",
-        "外資3日",
-        "投信3日",
-        "成交值(億)"
-    ],
+        volume_ratio
+    )
 
-    ascending=False
-)
+    st.markdown("---")
 
+    st.subheader("🏦 法人籌碼")
 
-# =========================
-# 顯示欄位
-# =========================
+    c1, c2, c3 = st.columns(3)
 
-show_columns = [
+    c1.metric(
+        "外資",
+        foreign
+    )
 
-    "熱門排行",
+    c2.metric(
+        "投信",
+        trust
+    )
 
-    "股票",
+    c3.metric(
+        "自營商",
+        dealer
+    )
 
-    "名稱",
+    st.markdown("---")
 
-    "市場",
+    st.subheader("⚠️ 隔日沖風險")
 
-    "族群",
+    st.warning(
+        day_trade_warning(volume_ratio)
+    )
 
-    "交易品質",
+    st.markdown("---")
 
-    "AI分數",
+    st.subheader("🧠 AI 判斷")
 
-    "收盤價",
+    for r in reasons:
 
-    "漲幅%",
+        st.write(f"✅ {r}")
 
-    "量比",
+    st.markdown("---")
 
-    "成交值(億)",
+    st.subheader("📌 若目前未進場")
 
-    "外資今日",
+    if score >= 12:
 
-    "外資3日",
+        st.success(
+            "偏多，可等待回踩 EMA20 或量縮整理後進場"
+        )
 
-    "投信今日",
+    elif score >= 8:
 
-    "投信3日",
+        st.info(
+            "觀察中，可等突破前高再進場"
+        )
 
-    "KD-K",
+    else:
 
-    "KD-D",
+        st.warning(
+            "目前結構普通，不建議急著追價"
+        )
 
-    "MACD",
+    st.markdown("---")
 
-    "SIGNAL",
+    st.subheader("📌 若目前已進場")
 
-    "MA5",
+    if macd_value > signal_value and k_value > d_value:
 
-    "EMA20",
+        st.success(
+            "趨勢仍偏多，可續抱觀察"
+        )
 
-    "距離前高%",
+    elif k_value < d_value:
 
-    "RR",
+        st.warning(
+            "KD轉弱，需注意短線拉回"
+        )
 
-    "日期",
-]
+    else:
 
-show_columns = [
-    c for c in show_columns
-    if c in filtered_df.columns
-]
-
-
-# =========================
-# 統計
-# =========================
-
-st.subheader("📊 市場統計")
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric(
-    "篩選後股票數",
-    len(filtered_df)
-)
-
-col2.metric(
-    "平均 AI 分數",
-    round(filtered_df["AI分數"].mean(), 2)
-)
-
-col3.metric(
-    "平均量比",
-    round(filtered_df["量比"].mean(), 2)
-)
-
-col4.metric(
-    "平均漲幅%",
-    round(filtered_df["漲幅%"].mean(), 2)
-)
-
-
-# =========================
-# 提前發動
-# =========================
-
-st.subheader("🚀 提前發動")
-
-starter_df = filtered_df[
-    filtered_df["交易品質"] == "提前發動"
-]
-
-st.dataframe(
-
-    starter_df[show_columns],
-
-    use_container_width=True,
-
-    height=500
-)
-
-
-# =========================
-# 潛力強勢
-# =========================
-
-st.subheader("🔥 潛力強勢")
-
-strong_df = filtered_df[
-    filtered_df["交易品質"] == "潛力強勢"
-]
-
-st.dataframe(
-
-    strong_df[show_columns],
-
-    use_container_width=True,
-
-    height=500
-)
-
-
-# =========================
-# 全部排行
-# =========================
-
-st.subheader("📈 AI 潛力股排行")
-
-st.dataframe(
-
-    filtered_df[show_columns],
-
-    use_container_width=True,
-
-    height=800
-)
-
-
-# =========================
-# 爆量排行
-# =========================
-
-st.subheader("⚡ 爆量排行")
-
-volume_df = filtered_df.sort_values(
-    "量比",
-    ascending=False
-).head(30)
-
-st.dataframe(
-
-    volume_df[show_columns],
-
-    use_container_width=True,
-
-    height=500
-)
-
-
-# =========================
-# 外資排行
-# =========================
-
-st.subheader("🏦 外資排行")
-
-foreign_df = filtered_df.sort_values(
-    "外資3日",
-    ascending=False
-).head(30)
-
-st.dataframe(
-
-    foreign_df[show_columns],
-
-    use_container_width=True,
-
-    height=500
-)
-
-
-# =========================
-# 投信排行
-# =========================
-
-st.subheader("🏛 投信排行")
-
-trust_df = filtered_df.sort_values(
-    "投信3日",
-    ascending=False
-).head(30)
-
-st.dataframe(
-
-    trust_df[show_columns],
-
-    use_container_width=True,
-
-    height=500
-)
+        st.info(
+            "建議設好停損並觀察量能"
+        )
