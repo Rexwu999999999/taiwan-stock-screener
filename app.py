@@ -333,7 +333,11 @@ def ai_analysis(
 
     close_price,
 
-    ema20,
+    ma5,
+
+    ma20,
+
+    ma60,
 
     k,
 
@@ -360,13 +364,29 @@ def ai_analysis(
 
     reasons = []
 
-    # EMA20
+    # MA20
 
-    if close_price > ema20:
+    if close_price > ma20:
 
         score += 2
 
-        reasons.append("站上 EMA20")
+        reasons.append("站上 MA20")
+
+    # MA5 > MA20
+
+    if ma5 > ma20:
+
+        score += 2
+
+        reasons.append("MA5 在 MA20 之上")
+
+    # MA20 > MA60
+
+    if ma20 > ma60:
+
+        score += 3
+
+        reasons.append("MA20 在 MA60 之上")
 
     # KDJ
 
@@ -540,29 +560,55 @@ if stock_input:
         )
     )
 
-    # EMA20
+    # =========================
+    # MA
+    # =========================
 
-    df["EMA20"] = (
+    df["MA5"] = (
 
         df["Close"]
 
-        .ewm(
-
-            span=20,
-
-            adjust=False
-
-        )
+        .rolling(5)
 
         .mean()
     )
 
-    ema20 = safe_round(
+    df["MA20"] = (
 
-        df.iloc[-1]["EMA20"]
+        df["Close"]
+
+        .rolling(20)
+
+        .mean()
     )
 
+    df["MA60"] = (
+
+        df["Close"]
+
+        .rolling(60)
+
+        .mean()
+    )
+
+    ma5 = safe_round(
+
+        df.iloc[-1]["MA5"]
+    )
+
+    ma20 = safe_round(
+
+        df.iloc[-1]["MA20"]
+    )
+
+    ma60 = safe_round(
+
+        df.iloc[-1]["MA60"]
+    )
+
+    # =========================
     # KD
+    # =========================
 
     k, d = calc_kd(df)
 
@@ -570,7 +616,9 @@ if stock_input:
 
     d_value = safe_round(d.iloc[-1])
 
+    # =========================
     # MACD
+    # =========================
 
     macd, signal, hist = calc_macd(df)
 
@@ -580,7 +628,9 @@ if stock_input:
 
     hist_value = safe_round(hist.iloc[-1])
 
+    # =========================
     # 量比
+    # =========================
 
     avg_volume_20 = (
 
@@ -596,7 +646,9 @@ if stock_input:
         volume / avg_volume_20
     )
 
+    # =========================
     # 前高
+    # =========================
 
     high_60 = (
 
@@ -620,7 +672,9 @@ if stock_input:
         ) * 100
     )
 
+    # =========================
     # 籌碼
+    # =========================
 
     chip = get_chip_data(stock_input)
 
@@ -630,13 +684,19 @@ if stock_input:
 
     dealer = chip["dealer"]
 
+    # =========================
     # AI
+    # =========================
 
     score, reasons = ai_analysis(
 
         close_price,
 
-        ema20,
+        ma5,
+
+        ma20,
+
+        ma60,
 
         k_value,
 
@@ -658,6 +718,48 @@ if stock_input:
 
         distance_high
     )
+
+    # =========================
+    # 最終結論
+    # =========================
+
+    final_result = ""
+
+    if score >= 18:
+
+        final_result = "🔥 強勢多頭，可優先觀察"
+
+    elif score >= 12:
+
+        final_result = "📈 偏多，可持續追蹤"
+
+    elif score >= 8:
+
+        final_result = "⚠️ 中性整理"
+
+    else:
+
+        final_result = "❌ 偏弱，不建議追價"
+
+    # =========================
+    # 上方總結
+    # =========================
+
+    st.subheader("🧠 AI 最終結論")
+
+    st.success(final_result)
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("MA5", ma5)
+
+    c2.metric("MA20", ma20)
+
+    c3.metric("MA60", ma60)
+
+    c4.metric("AI分數", score)
+
+    st.markdown("---")
 
     # =========================
     # 圖表
@@ -700,7 +802,7 @@ if stock_input:
         col=1
     )
 
-    # EMA20
+    # MA5
 
     fig.add_trace(
 
@@ -708,9 +810,45 @@ if stock_input:
 
             x=df["Date"],
 
-            y=df["EMA20"],
+            y=df["MA5"],
 
-            name="EMA20"
+            name="MA5"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    # MA20
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=df["MA20"],
+
+            name="MA20"
+        ),
+
+        row=1,
+
+        col=1
+    )
+
+    # MA60
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df["Date"],
+
+            y=df["MA60"],
+
+            name="MA60"
         ),
 
         row=1,
@@ -832,7 +970,7 @@ if stock_input:
     )
 
     # =========================
-    # 分析
+    # AI分析
     # =========================
 
     st.subheader("📊 AI 分析")
@@ -861,7 +999,9 @@ if stock_input:
 
     st.markdown("---")
 
-    # 法人
+    # =========================
+    # 法人籌碼
+    # =========================
 
     st.subheader("🏦 法人籌碼")
 
@@ -884,7 +1024,9 @@ if stock_input:
 
     st.markdown("---")
 
+    # =========================
     # 隔日沖
+    # =========================
 
     st.subheader("⚠️ 隔日沖風險")
 
@@ -894,7 +1036,9 @@ if stock_input:
 
     st.markdown("---")
 
+    # =========================
     # AI判斷
+    # =========================
 
     st.subheader("🧠 AI 判斷")
 
@@ -904,7 +1048,9 @@ if stock_input:
 
     st.markdown("---")
 
+    # =========================
     # 未進場
+    # =========================
 
     st.subheader("📌 若目前未進場")
 
@@ -928,7 +1074,9 @@ if stock_input:
 
     st.markdown("---")
 
+    # =========================
     # 已進場
+    # =========================
 
     st.subheader("📌 若目前已進場")
 
